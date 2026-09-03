@@ -74,3 +74,5 @@ export class Database {
 // Single shared connection to the CLI's sqlite db, so modules don't each
 // open their own handle to the same file.
 export const db = new Database();
+
+process.on("exit", () => db.close());

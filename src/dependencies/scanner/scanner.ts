@@ -67,10 +67,15 @@ export class Scanner {
   }
 
   // Class/interface name of a node's type, e.g. the `Command` in
-  // `app.option(...)` where `app: Command`. Falls back to the node's own
-  // text if the type can't be named (anonymous types, etc).
+  // `app.option(...)` where `app: Command`. Prefers the type's alias name
+  // (e.g. `type Assert = {...}`) over its own symbol - for a type alias to
+  // an anonymous object literal, the literal's own symbol is TypeScript's
+  // internal placeholder "__type", which is worse than useless as a label.
+  // Falls back to the node's own text if neither is available.
   private typeName(node: Node): string {
-    return node.getType().getSymbol()?.getName() ?? node.getText();
+    const type = node.getType();
+    const name = type.getAliasSymbol()?.getName() ?? type.getSymbol()?.getName();
+    return name && name !== "__type" ? name : node.getText();
   }
 
   // Maps a declaration's file path back to which scanned dependency owns

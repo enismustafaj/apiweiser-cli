@@ -41,6 +41,11 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Fake package used to give Scanner's tests something to resolve types
+# against, without needing a real npm install.
+!test/dependencies/fixtures/scanner-project/node_modules/
+!test/dependencies/fixtures/scanner-project/node_modules/**
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 

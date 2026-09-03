@@ -25,3 +25,19 @@ test("findCallSites returns nothing for a dependency never imported", async () =
 
   assert.deepEqual(sites, []);
 });
+
+// Regression test for a real bug found scanning got (github.com/sindresorhus/got):
+// `type Assert = {...}` is a type alias to an anonymous object literal, not
+// an interface/class. The literal's own symbol name is TypeScript's internal
+// placeholder "__type" - typeName() must prefer the alias symbol ("Assert")
+// instead, or fall back to node text, never surface "__type" itself.
+test("findCallSites names a type alias to an anonymous object literal, not '__type'", async () => {
+  const sites = await new Scanner().findCallSites(FIXTURE_DIR, [
+    { name: "fake-lib", currentVersion: "1.0.0", type: "direct" },
+  ]);
+
+  assert.deepEqual(
+    sites.map((site) => site.apiSurface),
+    ["Assert.boolean"],
+  );
+});
