@@ -15,14 +15,28 @@ export class Database {
   constructor(dbPath: string = DEFAULT_DB_PATH) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
+    this.db.exec("PRAGMA foreign_keys = ON");
     this.migrate();
   }
 
+  // No migration framework here (yet) - schema changes are additive
+  // CREATE TABLE IF NOT EXISTS statements. If you change an existing
+  // table's columns, delete ~/.apiweiser-scanner/db.sqlite and let it
+  // recreate; there's no ALTER TABLE step.
   private migrate(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS packages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        current_version TEXT NOT NULL,
+        type TEXT NOT NULL
+      )
+    `);
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS call_sites (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dependency TEXT NOT NULL,
+        package_id INTEGER NOT NULL REFERENCES packages(id),
         file TEXT NOT NULL,
         line INTEGER NOT NULL,
         snippet TEXT NOT NULL,

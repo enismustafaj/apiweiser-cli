@@ -5,16 +5,16 @@
 Given a repo path and the list of `Dependency` objects produced by
 [`SbomTool`](../src/dependencies/tool/sbom-tool.ts), the scanner finds every
 place in the repo's TypeScript source where one of those dependencies is
-actually *invoked*, and which exported member was called (the "API
+actually _invoked_, and which exported member was called (the "API
 surface"). It returns `CallSite[]`:
 
 ```ts
 interface CallSite {
-  dependency: string;   // package name, e.g. "commander"
-  file: string;          // absolute path of the source file
-  line: number;           // 1-based line of the call
-  snippet: string;         // source text of the call expression
-  apiSurface: string;      // the member invoked, e.g. "Command" or "Command.option"
+  dependency: string; // package name, e.g. "commander"
+  file: string; // absolute path of the source file
+  line: number; // 1-based line of the call
+  snippet: string; // source text of the call expression
+  apiSurface: string; // the member invoked, e.g. "Command" or "Command.option"
 }
 ```
 
@@ -35,7 +35,7 @@ interface CallSite {
 3. **Resolve each call's callee back to where it was declared.**
    For a call `expr(...)`, the callee node is either an identifier
    (`fn(...)`) or a property access (`obj.method(...)`, in which case the
-   *name* node — `method` — is what's resolved). `nameNode.getSymbol()` asks
+   _name_ node — `method` — is what's resolved). `nameNode.getSymbol()` asks
    ts-morph's language service for the symbol backing that identifier, and
    if it's an import alias, `symbol.getAliasedSymbol()` follows it to the
    real declaration. That declaration's source file is then checked for a
@@ -46,7 +46,7 @@ interface CallSite {
    - Direct call/construction (`fn(...)`, `new Cls(...)`) → `apiSurface` is
      just the callee name (`"execFile"`, `"Command"`).
    - Member call (`obj.method(...)`) → `apiSurface` is
-     `"<TypeName>.<method>"`, where `<TypeName>` is the *type* of `obj`
+     `"<TypeName>.<method>"`, where `<TypeName>` is the _type_ of `obj`
      (`app.getType().getSymbol()?.getName()`), not `obj`'s variable name.
      This is what makes chained calls work: `app.option(...)` reports
      `"Command.option"` because `app`'s type is `Command`, even though
@@ -80,11 +80,9 @@ For this repo's own `src/main.ts`:
 
 ```ts
 import { Command } from "commander";
-const app = new Command()
-app.name("apiweiser-scanner")
-  .description("")
-  .option("-p, --path <path>", "project path")
-app.parse(process.argv)
+const app = new Command();
+app.name("apiweiser-scanner").description("").option("-p, --path <path>", "project path");
+app.parse(process.argv);
 const opts = app.opts();
 ```
 

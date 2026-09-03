@@ -20,11 +20,10 @@ export class SbomTool {
   async generate(repoPath: string): Promise<Dependency[]> {
     const absoluteRepoPath = resolve(repoPath);
 
-    const { stdout } = await execFileAsync(
-      "npm",
-      ["sbom", "--sbom-format", "cyclonedx"],
-      { cwd: absoluteRepoPath, maxBuffer: 1024 * 1024 * 20 },
-    );
+    const { stdout } = await execFileAsync("npm", ["sbom", "--sbom-format", "cyclonedx"], {
+      cwd: absoluteRepoPath,
+      maxBuffer: 1024 * 1024 * 20,
+    });
 
     await this.writeToCache(absoluteRepoPath, stdout);
 

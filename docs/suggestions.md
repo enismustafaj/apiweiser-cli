@@ -18,7 +18,7 @@ src/suggestions/
 `RenovateTool.run(repoPath): Promise<RenovateUpdate[]>`
 
 Shells out to Renovate's own CLI, via `npx --yes renovate` rather than a
-project dependency — Renovate is a huge tool, this only ever *calls* it, it
+project dependency — Renovate is a huge tool, this only ever _calls_ it, it
 doesn't import it as a library.
 
 ```
@@ -44,7 +44,7 @@ between versions.
 reliably fails a later step (writing update branches) even on a totally
 successful scan, because that platform mode can't push branches — a
 `platform=local` limitation, not a real error. The report file is written
-*before* that step runs, so:
+_before_ that step runs, so:
 
 ```ts
 try {
@@ -66,7 +66,7 @@ throws on its own right after, so real failures still surface.
 of the resolved repo path so multiple repos don't collide.
 
 **Important:** Renovate's `local` platform discovers files via `git
-ls-files` — only *committed* files are seen. An untracked `package.json`
+ls-files` — only _committed_ files are seen. An untracked `package.json`
 scans as zero dependencies with no error or warning.
 
 ### Flattening the report
@@ -79,10 +79,10 @@ repositories → { [repoName]: { packageFiles: { [manager]: [ { packageFile, dep
 
 `toUpdates()` walks all four levels and emits one `RenovateUpdate` per
 `(dep, update)` pair — not per dependency. A single dependency can have
-*multiple* proposed updates (e.g. a `minor` bump and a separate `major`
+_multiple_ proposed updates (e.g. a `minor` bump and a separate `major`
 bump, if you're several majors behind), each becoming its own row.
 
-Two fields fall back between Renovate's *resolved* and *raw* forms, because
+Two fields fall back between Renovate's _resolved_ and _raw_ forms, because
 not every datasource lets Renovate resolve an exact version:
 
 - `currentVersion ?? currentValue` — resolved version (`10.0.1`) if known,
@@ -97,17 +97,17 @@ Takes a `Database` injected via constructor (the shared singleton in normal
 use, see [`db/database.ts`](../src/db/database.ts)) and inserts into the
 `suggestions` table:
 
-| column           | source                                    |
-|-------------------|--------------------------------------------|
-| `dependency`       | `dep.depName`                               |
-| `package_file`      | which file it came from, e.g. `package.json` |
-| `dep_type`           | e.g. `dependencies` vs `devDependencies`       |
-| `current_version`     | resolved or raw current version                 |
-| `new_version`           | resolved or raw proposed version                  |
-| `update_type`             | `major` / `minor` / `patch` / ...                  |
-| `datasource`                | e.g. `npm`, `docker`, `github-tags`                 |
-| `source_url`                  | the package's repo/homepage, if Renovate found one   |
-| `scanned_at`                    | defaulted by sqlite to `CURRENT_TIMESTAMP`             |
+| column            | source                                             |
+| ----------------- | -------------------------------------------------- |
+| `dependency`      | `dep.depName`                                      |
+| `package_file`    | which file it came from, e.g. `package.json`       |
+| `dep_type`        | e.g. `dependencies` vs `devDependencies`           |
+| `current_version` | resolved or raw current version                    |
+| `new_version`     | resolved or raw proposed version                   |
+| `update_type`     | `major` / `minor` / `patch` / ...                  |
+| `datasource`      | e.g. `npm`, `docker`, `github-tags`                |
+| `source_url`      | the package's repo/homepage, if Renovate found one |
+| `scanned_at`      | defaulted by sqlite to `CURRENT_TIMESTAMP`         |
 
 The table is created (`CREATE TABLE IF NOT EXISTS`) by `Database.migrate()`
 alongside `call_sites` — schema lives centrally in `Database`, repositories
@@ -131,7 +131,7 @@ Wraps `node-cron` so `SuggestionsModule.generate` can run on a recurring
 schedule instead of once:
 
 ```ts
-new Scheduler(repoPath, "0 9 * * *")  // e.g. every day at 09:00
+new Scheduler(repoPath, "0 9 * * *"); // e.g. every day at 09:00
 scheduler.start();
 scheduler.stop();
 ```
