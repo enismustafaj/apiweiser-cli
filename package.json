@@ -28,7 +28,6 @@
   "dependencies": {
     "commander": "^15.0.0",
     "node-cron": "^4.6.0",
-    "openai": "^7.10.0",
     "ts-morph": "^28.0.0"
   }
 }

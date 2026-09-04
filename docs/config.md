@@ -1,5 +1,13 @@
 # Config
 
+> **Currently unused.** This was built to hold LLM credentials for
+> `ChangelogSourceAgent`, which has since been removed —
+> `DataSourcesModule` derives changelog sources from npm registry metadata
+> now, no LLM involved (see [`docs/data-sources.md`](./data-sources.md)).
+> Nothing constructs `main.ts`'s CLI with a config anymore. Left in place
+> rather than deleted, in case a future feature needs an LLM again; ask if
+> you want it removed instead.
+
 `src/config/` — the CLI's own config file, which the user has to fill in
 themselves (an LLM API key, at minimum) before `--path` will run.
 
@@ -35,9 +43,9 @@ works, not just `api.openai.com` directly.
 
 ## `ConfigLoader.load(configPath?)`
 
-Called once, at the top of `main.ts`, before anything else runs (see the
-`--path` handler) — so a missing or incomplete config fails fast, before
-any scanning work starts.
+Not currently called anywhere (see the note above). When it was wired up,
+called once at the top of `main.ts` before anything else ran, so a missing
+or incomplete config failed fast, before any scanning work started.
 
 - **File missing**: writes the template above (with an empty `apiKey`) to
   `configPath`, then throws, telling the user where to fill it in. The next
@@ -48,11 +56,3 @@ any scanning work starts.
 
 `configPath` defaults to the real location above; tests pass an explicit
 temp path instead so they don't touch the user's actual config.
-
-## Who uses it
-
-`main.ts` loads it once and passes `config.llm` into
-`new DependenciesModule(config.llm)`, which forwards it into
-`DataSourcesModule` (see [`docs/data-sources.md`](./data-sources.md)) to
-construct `ChangelogSourceAgent`. Nothing else in the CLI needs an LLM
-today, so nothing else reads the config.

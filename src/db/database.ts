@@ -47,6 +47,14 @@ export class Database {
     `);
 
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS pending_changelog_lookups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_id INTEGER NOT NULL UNIQUE REFERENCES packages(id),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS suggestions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         dependency TEXT NOT NULL,
@@ -62,7 +70,6 @@ export class Database {
     `);
   }
 
-  // Raw connection, for repositories to prepare/run their own queries on.
   get connection(): DatabaseSync {
     return this.db;
   }

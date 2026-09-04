@@ -1,4 +1,3 @@
-import type { LlmConfig } from "../config/config.ts";
 import { DataSourcesModule } from "../data-sources/index.ts";
 import { db } from "../db/singleton.ts";
 import { CallSitesRepository } from "./db/call-sites-repository.ts";
@@ -12,11 +11,7 @@ export class DependenciesModule {
   private readonly scanner = new Scanner();
   private readonly packagesRepository = new PackagesRepository(db);
   private readonly callSitesRepository = new CallSitesRepository(db);
-  private readonly dataSourcesModule: DataSourcesModule;
-
-  constructor(llmConfig: LlmConfig) {
-    this.dataSourcesModule = new DataSourcesModule(llmConfig);
-  }
+  private readonly dataSourcesModule = new DataSourcesModule();
 
   async scan(repoPath: string): Promise<CallSite[]> {
     const dependencies = await this.sbomTool.generate(repoPath);
@@ -34,7 +29,9 @@ export class DependenciesModule {
     const callSites = await this.scanner.findCallSites(repoPath, changedOrNew);
     this.callSitesRepository.insert(callSites);
 
-    await this.dataSourcesModule.recordChangelogSources(newDependencies);
+    // Just queues new packages for lookup - no network call, no blocking on
+    // (or flooding) the npm registry. See DataSourcesModule/Scheduler.
+    this.dataSourcesModule.enqueueForLookup(newDependencies);
 
     return callSites;
   }

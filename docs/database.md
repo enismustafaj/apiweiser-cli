@@ -12,7 +12,8 @@ once, shared by every module.
   know about `packages`, `call_sites`, `data_sources`, or `suggestions` as
   domain concepts beyond creating their tables. Each module has its own
   `*Repository` class (`PackagesRepository`, `CallSitesRepository`,
-  `DataSourcesRepository`, `SuggestionsRepository`) that takes a `Database`
+  `DataSourcesRepository`, `PendingChangelogLookupsRepository`,
+  `SuggestionsRepository`) that takes a `Database`
   injected via constructor and runs its own queries against
   `db.connection`. See [`docs/scanner.md`](./scanner.md),
   [`docs/data-sources.md`](./data-sources.md), and
@@ -93,20 +94,41 @@ FROM call_sites cs
 JOIN packages p ON p.id = cs.package_id
 ```
 
+### `pending_changelog_lookups`
+
+The queue: one row per package waiting for a changelog-source lookup (see
+[`docs/data-sources.md`](./data-sources.md)). `DependenciesModule.scan()`
+inserts into this table for brand-new packages — no network call, just a
+queue entry — and `DataSourcesModule.processPendingLookups()` (run on a
+schedule, not inline with a scan) drains it in batches, deleting a row
+once its lookup resolves (to a URL _or_ a definitive "no source exists" —
+either way, there's nothing left to look up).
+
+| column       | type    | notes                                                        |
+| ------------ | ------- | ------------------------------------------------------------ |
+| `id`         | INTEGER | primary key, autoincrement                                   |
+| `package_id` | INTEGER | `REFERENCES packages(id)`, unique, not null                  |
+| `created_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`; also the queue's FIFO order |
+
+`package_id` is `UNIQUE` so re-enqueuing an already-queued package
+(`INSERT OR IGNORE`) is a no-op rather than a duplicate row.
+
 ### `data_sources`
 
-Populated by `DataSourcesRepository`, one row per package `DataSourcesModule`
-found a changelog source for (see
+Populated by `DataSourcesRepository`, one row per package
+`DataSourcesModule` actually found a changelog source URL for (see
 [`docs/data-sources.md`](./data-sources.md)). Only ever written for
 packages that are brand new to `packages` — a version bump on a package
-already known doesn't produce a new row here.
+already known doesn't produce a new row here. A package whose lookup
+resolves to "no source exists" is removed from `pending_changelog_lookups`
+but never gets a row here — there's no URL to record.
 
-| column       | type    | notes                                          |
-| ------------ | ------- | ---------------------------------------------- |
-| `id`         | INTEGER | primary key, autoincrement                     |
-| `package_id` | INTEGER | `REFERENCES packages(id)`, not null            |
-| `url`        | TEXT    | GitHub releases page or raw `CHANGELOG.md` URL |
-| `created_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`                |
+| column       | type    | notes                                                                         |
+| ------------ | ------- | ----------------------------------------------------------------------------- |
+| `id`         | INTEGER | primary key, autoincrement                                                    |
+| `package_id` | INTEGER | `REFERENCES packages(id)`, not null                                           |
+| `url`        | TEXT    | GitHub API releases endpoint (`api.github.com/repos/<owner>/<repo>/releases`) |
+| `created_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`                                               |
 
 `DataSourcesRepository.insert()` takes `Map<packageId, url>` and inserts
 `package_id` directly — no subquery, since `DataSourcesModule` already has
