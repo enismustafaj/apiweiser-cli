@@ -79,6 +79,22 @@ All state lives in `~/.apiweiser-cli/` — the sqlite db, the config
 file, and SBOM/Renovate report caches — separate from whatever repo you
 point `--path` at.
 
+## Docker
+
+```sh
+docker build -t apiweiser-cli .
+docker run --rm \
+  -v "$(pwd)":/repo:ro \
+  -v apiweiser-cli-state:/root/.apiweiser-cli \
+  apiweiser-cli --path /repo
+```
+
+The repo being scanned is mounted read-only at `/repo`. The named volume
+persists `~/.apiweiser-cli/` (db, config, caches) across runs — drop it and
+you lose scan history/config. For a scheduler flag (`--suggestions-cron`,
+`--data-sources-cron`, `--release-analysis-cron`), add `-d` to run detached;
+the process keeps running instead of exiting after one scan.
+
 ## Development
 
 ```sh
