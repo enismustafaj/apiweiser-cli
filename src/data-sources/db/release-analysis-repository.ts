@@ -8,8 +8,6 @@ export class ReleaseAnalysisRepository {
     this.db = db;
   }
 
-  // Starts as 'running'; RETURNING id so the caller can attach results to
-  // this run without a separate lookup.
   startRun(): number {
     const row = this.db.connection
       .prepare(`INSERT INTO release_analysis_runs (status) VALUES ('running') RETURNING id`)

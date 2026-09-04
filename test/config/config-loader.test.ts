@@ -8,7 +8,7 @@ import { ConfigLoader } from "../../src/config/config-loader.ts";
 const createdDirs: string[] = [];
 
 function tempConfigPath(): string {
-  const dir = mkdtempSync(join(tmpdir(), "apiweiser-scanner-config-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "apiweiser-cli-config-test-"));
   createdDirs.push(dir);
   return join(dir, "config.json");
 }

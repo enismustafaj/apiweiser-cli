@@ -81,7 +81,7 @@ For this repo's own `src/main.ts`:
 ```ts
 import { Command } from "commander";
 const app = new Command();
-app.name("apiweiser-scanner").description("").option("-p, --path <path>", "project path");
+app.name("apiweiser-cli").description("").option("-p, --path <path>", "project path");
 app.parse(process.argv);
 const opts = app.opts();
 ```

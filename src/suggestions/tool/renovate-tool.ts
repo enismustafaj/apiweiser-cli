@@ -9,7 +9,7 @@ import type { RenovateReport } from "./renovate-report.ts";
 
 const execFileAsync = promisify(execFile);
 
-const CACHE_DIR = join(homedir(), ".apiweiser-scanner", "renovate");
+const CACHE_DIR = join(homedir(), ".apiweiser-cli", "renovate");
 
 export class RenovateTool {
   async run(repoPath: string): Promise<RenovateUpdate[]> {

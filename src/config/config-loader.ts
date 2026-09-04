@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AppConfig } from "./config.ts";
 
-const DEFAULT_CONFIG_PATH = join(homedir(), ".apiweiser-scanner", "config.json");
+const DEFAULT_CONFIG_PATH = join(homedir(), ".apiweiser-cli", "config.json");
 
 const TEMPLATE: AppConfig = {
   llm: {

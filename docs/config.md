@@ -12,7 +12,7 @@ src/config/
 
 ## File location
 
-`~/.apiweiser-scanner/config.json` — same dedicated directory as the
+`~/.apiweiser-cli/config.json` — same dedicated directory as the
 sqlite db and the SBOM/Renovate caches (see
 [`docs/database.md`](./database.md)). This is config for the CLI itself,
 not for whatever repo it's pointed at with `--path`, so it doesn't live in

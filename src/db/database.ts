@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const DEFAULT_DB_PATH = join(homedir(), ".apiweiser-scanner", "db.sqlite");
+const DEFAULT_DB_PATH = join(homedir(), ".apiweiser-cli", "db.sqlite");
 
 export class Database {
   private readonly db: DatabaseSync;

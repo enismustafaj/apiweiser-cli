@@ -9,7 +9,7 @@ import type { CycloneDxDocument } from "./cyclonedx.types.ts";
 
 const execFileAsync = promisify(execFile);
 
-const CACHE_DIR = join(homedir(), ".apiweiser-scanner", "sbom");
+const CACHE_DIR = join(homedir(), ".apiweiser-cli", "sbom");
 
 export class SbomTool {
   async generate(repoPath: string): Promise<Dependency[]> {

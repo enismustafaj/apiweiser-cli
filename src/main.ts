@@ -8,7 +8,7 @@ import { Scheduler as SuggestionsScheduler } from "./suggestions/suggestions-sch
 const app = new Command();
 
 app
-  .name("apiweiser-scanner")
+  .name("apiweiser-cli")
   .description("")
   .option("-p, --path <path>", "project path")
   .option("--suggestions-cron <expression>", "run Renovate suggestions on a cron schedule")

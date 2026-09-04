@@ -261,6 +261,6 @@ node src/main.ts --release-analysis-cron "0 0 * * *"
 ```
 
 Also doesn't need `--path` — `data_sources` is global, same reasoning as
-`--data-sources-cron`. **Does** need a valid `~/.apiweiser-scanner/config.json`
+`--data-sources-cron`. **Does** need a valid `~/.apiweiser-cli/config.json`
 (see [`docs/config.md`](./config.md)) — this is the one thing in the CLI
 that still needs an LLM.

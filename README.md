@@ -1,4 +1,4 @@
-# apiweiser-scanner
+# apiweiser-cli
 
 Scans a repo's dependencies (via SBOM), finds where each one is actually
 called in the source (via ts-morph), tracks version updates Renovate
@@ -20,7 +20,7 @@ npm install
 
 No config file needed for scanning or changelog-source lookups. Only
 `--release-analysis-cron` (see below) needs an LLM — the first time it's
-used, it creates `~/.apiweiser-scanner/config.json` for you and exits with
+used, it creates `~/.apiweiser-cli/config.json` for you and exits with
 an error asking you to fill it in:
 
 ```json
@@ -75,7 +75,7 @@ fetches every known package's latest GitHub release and classifies
 whether it's a breaking change, via an LLM. Also doesn't need `--path`.
 Needs a filled-in config (see Setup above).
 
-All state lives in `~/.apiweiser-scanner/` — the sqlite db, the config
+All state lives in `~/.apiweiser-cli/` — the sqlite db, the config
 file, and SBOM/Renovate report caches — separate from whatever repo you
 point `--path` at.
 

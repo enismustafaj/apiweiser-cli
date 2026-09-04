@@ -3,7 +3,7 @@
 `src/db/database.ts` — the CLI's sqlite database: one connection, opened
 once, shared by every module.
 
-- **File location**: `~/.apiweiser-scanner/db.sqlite` — a directory
+- **File location**: `~/.apiweiser-cli/db.sqlite` — a directory
   dedicated to this CLI, separate from any repo being scanned (same idea as
   the SBOM/Renovate report caches).
 - **Engine**: Node's stdlib `node:sqlite` (`DatabaseSync`), not a
@@ -28,7 +28,7 @@ once, shared by every module.
   close hook. Deliberately _not_ in `database.ts` itself: importing the
   `Database` class (e.g. from a test, to build an isolated `:memory:`
   instance) must not have the side effect of opening the real
-  `~/.apiweiser-scanner/db.sqlite` file. When that side effect lived in
+  `~/.apiweiser-cli/db.sqlite` file. When that side effect lived in
   `database.ts`, every test file that imported the class triggered it too,
   and concurrent test runs raced to open and migrate the same real file.
   `database.ts` now only exports the `Database` class — no side effects on
@@ -39,7 +39,7 @@ once, shared by every module.
 All tables are created with `CREATE TABLE IF NOT EXISTS` in
 `Database.migrate()`, run once in the constructor — there's no separate
 migration runner or versioning, just idempotent `CREATE TABLE`s. Changing an
-existing table's columns means deleting `~/.apiweiser-scanner/db.sqlite`
+existing table's columns means deleting `~/.apiweiser-cli/db.sqlite`
 and letting it recreate; there's no `ALTER TABLE` step.
 
 ### `packages`

@@ -61,7 +61,7 @@ the local-platform quirk — `JSON.parse(await readFile(reportPath, ...))`
 throws on its own right after, so real failures still surface.
 
 **Caching**: the raw report JSON is cached under
-`~/.apiweiser-scanner/renovate/<hash-of-repopath>.json`, same pattern as
+`~/.apiweiser-cli/renovate/<hash-of-repopath>.json`, same pattern as
 `SbomTool`'s SBOM cache — a directory dedicated to this CLI, keyed by a hash
 of the resolved repo path so multiple repos don't collide.
 
