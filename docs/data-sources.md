@@ -7,13 +7,25 @@ batches on a schedule, not done inline during a scan.
 
 ```
 src/data-sources/
-  types.ts                                PendingLookup, NpmPackageManifest
+  types.ts                                shared types (see below, one per class)
   npm-registry-lookup.ts                  class NpmRegistryLookup
+  github-release-fetcher.ts               class GitHubReleaseFetcher
+  agent/breaking-change-classifier.ts     class BreakingChangeClassifierAgent
   db/pending-changelog-lookups-repository.ts  class PendingChangelogLookupsRepository(db)
   db/data-sources-repository.ts           class DataSourcesRepository(db)
+  db/release-analysis-repository.ts        class ReleaseAnalysisRepository(db)
   index.ts                                class DataSourcesModule
-  scheduler.ts                            class Scheduler(cronExpr)
+  changelog-lookup-scheduler.ts           class Scheduler(cronExpr) - drains the lookup queue
+  release-analysis.ts                     class ReleaseAnalysisModule(llmConfig)
+  release-analysis-scheduler.ts           class Scheduler(cronExpr, llmConfig) - runs release analysis
 ```
+
+This module covers two related but independent pipelines: **finding**
+where a package's changelog lives (`NpmRegistryLookup` → `data_sources`,
+no LLM), and **classifying** what its latest release actually says
+(`GitHubReleaseFetcher` + `BreakingChangeClassifierAgent` → an LLM). The
+sections below cover the first pipeline; see
+[§ Release analysis](#release-analysis) for the second.
 
 ## Why a queue instead of looking up inline
 
@@ -114,8 +126,16 @@ One scheduler tick:
    empirically getting `429`s after a few hundred rapid sequential
    requests) pending entries, oldest first.
 2. For each, calls `NpmRegistryLookup.findChangelogSource(packageName)`:
-   - **Resolves to a URL** → recorded, and the entry is removed from the
-     queue.
+   - **Resolves to a URL** → written to `data_sources` immediately, _then_
+     the entry is removed from the queue. Insert-before-remove, per
+     package, with no `await` in between — not a batch insert after the
+     whole tick's loop finishes. That ordering used to be reversed
+     (removal happened immediately per item, but every found URL was
+     collected into a `Map` and only written to `data_sources` in one
+     insert _after_ the loop finished) — if the process died partway
+     through a tick, an already-dequeued package's URL could be lost
+     entirely, never written anywhere. Insert-then-remove, per package,
+     closes that window.
    - **Resolves to `null`** (no repository data — a definitive answer) →
      logged via `console.log`, and the entry is **still removed** from the
      queue. There's nothing to retry; leaving it queued would just burn
@@ -123,8 +143,6 @@ One scheduler tick:
      resolve.
    - **Throws** (network failure, `429`, ...) → logged via
      `console.error`, entry **stays queued** for the next tick.
-3. Whatever resolved to a URL this tick is written to `data_sources` in
-   one `DataSourcesRepository.insert()` call.
 
 ## `DataSourcesRepository.insert(sources)`
 
@@ -133,9 +151,9 @@ per entry — no subquery, since callers already have the id on hand. See
 [`docs/database.md`](./database.md) for why this one doesn't need the
 by-name subquery `CallSitesRepository` uses.
 
-## `Scheduler`
+## `Scheduler` (changelog-lookup-scheduler.ts)
 
-Same shape as `suggestions/scheduler.ts`: wraps `node-cron`'s `createTask`
+Same shape as `suggestions/suggestions-scheduler.ts`: wraps `node-cron`'s `createTask`
 so the task exists but sits idle until `.start()`, and each tick catches
 and logs any failure from `processPendingLookups()` rather than letting
 one bad tick kill the schedule.
@@ -155,3 +173,94 @@ node src/main.ts --path <repo> --data-sources-cron "<cron expression>"
 `--data-sources-cron` doesn't need `--path` — the queue is global (keyed
 by package name, not tied to any one repo), so draining it can run on its
 own schedule independently of any particular scan.
+
+## Release analysis
+
+A second, independent pipeline: once a day, walk every known
+`data_sources` entry, fetch its package's **latest** GitHub release, and
+classify whether that release contains breaking changes.
+
+### `GitHubReleaseFetcher.fetchLatest(releasesUrl)`
+
+`GET` the releases API endpoint a `data_sources` row already points to.
+GitHub returns releases newest-first, so the latest release is just
+`releases[0]`. Returns `{ tagName, body }`, or `null` if the repo has no
+releases published at all (not an error — plenty of packages tag versions
+without ever creating a GitHub Release).
+
+**GitHub's own rate limit is a real constraint here, unaddressed for
+now**: unauthenticated requests are capped at 60/hour. A run with more
+than ~60 data sources will start failing (thrown, logged, skipped —
+`ReleaseAnalysisModule` doesn't crash) partway through, even with the
+pacing delay below, since that delay is sized for the _model's_ rate
+limit, not GitHub's. A GitHub token would raise this to 5,000/hour; not
+wired in yet — ask if you want it added (`Authorization: Bearer <token>`
+on the fetch, likely via the same config file `ConfigLoader` already
+reads).
+
+### `BreakingChangeClassifierAgent.classify(releaseNotes)`
+
+Lives in `src/data-sources/agent/` (this module owns it, unlike
+`NpmRegistryLookup`'s pipeline, which has no LLM at all). Same shape as
+the removed `ChangelogSourceAgent`: OpenAI SDK, `chat.completions.create`
+with a `json_schema` `response_format` so the answer is always
+`{ isBreaking: boolean, summary: string }` — never prose to parse. Checks
+`finish_reason === "content_filter"` / `message.refusal` before trusting
+the response, same as before.
+
+### `release_analysis_runs` / `release_analysis_results`
+
+See [`docs/database.md`](./database.md) for the column lists.
+`ReleaseAnalysisRepository` covers both tables:
+`.startRun()` inserts a `status: 'running'` row (`RETURNING id`, so the
+caller doesn't need a second query) and `.finishRun(runId, status)` sets
+`status` + `ended_at` once the run is done. `.insertResult()` writes one
+row per package actually classified, tied to that run via `run_id`.
+
+### `ReleaseAnalysisModule.run()`
+
+1. Starts a run (`ReleaseAnalysisRepository.startRun()`).
+2. For every `data_sources` entry (`DataSourcesRepository.listAll()`):
+   fetch its latest release; if there's no release, or the release body
+   is empty, skip it (nothing to classify); otherwise classify the body
+   and insert a result. One package failing (no releases, GitHub rate
+   limit, model refusal, ...) is logged and skipped — it doesn't abort the
+   run, matching the resilience pattern used everywhere else in this
+   module.
+3. Between every package (whether it succeeded, was skipped, or failed),
+   waits `DELAY_BETWEEN_PACKAGES_MS` (1 second) before continuing — **this
+   is the "don't hit the model's rate limit" mechanism**. Unlike the
+   lookup queue's `BATCH_SIZE` (which caps how much of the queue one tick
+   touches, deliberately leaving the rest for later ticks), this pipeline
+   is meant to get through _every_ data source each run, just paced out
+   rather than fired all at once.
+4. Marks the run `'completed'` when the loop finishes, or `'failed'` if
+   something outside the per-package try/catch throws (a bug, not a
+   per-package failure) — either way, the run is never left stuck at
+   `'running'` forever.
+
+### `Scheduler` (release-analysis-scheduler.ts)
+
+Same shape as the other two schedulers in this CLI, but also takes an
+`LlmConfig` (to construct `ReleaseAnalysisModule`'s classifier):
+
+```ts
+new Scheduler("0 0 * * *", llmConfig); // once a day at midnight - the intended cadence
+scheduler.start();
+scheduler.stop();
+```
+
+The cron expression isn't hardcoded to daily — it's passed in, same as
+the other schedulers — but daily is the cadence this was built for, and
+what `main.ts`'s flag description recommends.
+
+### CLI
+
+```
+node src/main.ts --release-analysis-cron "0 0 * * *"
+```
+
+Also doesn't need `--path` — `data_sources` is global, same reasoning as
+`--data-sources-cron`. **Does** need a valid `~/.apiweiser-scanner/config.json`
+(see [`docs/config.md`](./config.md)) — this is the one thing in the CLI
+that still needs an LLM.

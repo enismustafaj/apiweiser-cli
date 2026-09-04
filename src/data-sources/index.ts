@@ -24,21 +24,23 @@ export class DataSourcesModule {
   }
 
   // One scheduler tick: claims up to BATCH_SIZE pending lookups and
-  // resolves each via NpmRegistryLookup. NpmRegistryLookup returning null
-  // is a definitive answer - no repository data exists for this package -
-  // so it's logged and removed from the queue right away, not retried.
-  // Only a *thrown* error (network failure, 429, ...) is transient, and
-  // leaves the entry queued for the next tick.
+  // resolves each via NpmRegistryLookup. Removal from the queue happens
+  // per-package, right after (not before, and not batched at the end
+  // after) its outcome is durably recorded - a found URL is inserted into
+  // data_sources *before* its pending row is removed, so a crash mid-batch
+  // can't drop an already-dequeued package's URL. NpmRegistryLookup
+  // returning null is a definitive answer - no repository data exists for
+  // this package - so it's logged and removed from the queue right away,
+  // not retried. Only a *thrown* error (network failure, 429, ...) is
+  // transient, and leaves the entry queued for the next tick.
   async processPendingLookups(): Promise<void> {
     const batch = this.pendingLookupsRepository.takeBatch(BATCH_SIZE);
-    if (batch.length === 0) return;
 
-    const sources = new Map<number, string>();
     for (const { pendingId, packageId, packageName } of batch) {
       try {
         const url = await this.npmRegistryLookup.findChangelogSource(packageName);
         if (url) {
-          sources.set(packageId, url);
+          this.dataSourcesRepository.insert(new Map([[packageId, url]]));
         } else {
           console.log(`DataSourcesModule: no changelog source found for "${packageName}"`);
         }
@@ -47,7 +49,5 @@ export class DataSourcesModule {
         console.error(`DataSourcesModule: lookup failed for "${packageName}", will retry:`, err);
       }
     }
-
-    this.dataSourcesRepository.insert(sources);
   }
 }

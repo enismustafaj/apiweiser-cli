@@ -1,7 +1,9 @@
 import { Command } from "commander";
-import { Scheduler as DataSourcesScheduler } from "./data-sources/scheduler.ts";
+import { ConfigLoader } from "./config/config-loader.ts";
+import { Scheduler as DataSourcesScheduler } from "./data-sources/changelog-lookup-scheduler.ts";
+import { Scheduler as ReleaseAnalysisScheduler } from "./data-sources/release-analysis-scheduler.ts";
 import { DependenciesModule } from "./dependencies/index.ts";
-import { Scheduler as SuggestionsScheduler } from "./suggestions/scheduler.ts";
+import { Scheduler as SuggestionsScheduler } from "./suggestions/suggestions-scheduler.ts";
 
 const app = new Command();
 
@@ -13,6 +15,10 @@ app
   .option(
     "--data-sources-cron <expression>",
     "look up queued packages' changelog sources on a cron schedule",
+  )
+  .option(
+    "--release-analysis-cron <expression>",
+    'classify each package\'s latest release for breaking changes on a cron schedule (intended cadence: once a day, e.g. "0 0 * * *")',
   );
 
 app.parse(process.argv);
@@ -31,5 +37,11 @@ if (opts.path) {
 
 if (opts.dataSourcesCron) {
   const scheduler = new DataSourcesScheduler(opts.dataSourcesCron);
+  scheduler.start();
+}
+
+if (opts.releaseAnalysisCron) {
+  const config = new ConfigLoader().load();
+  const scheduler = new ReleaseAnalysisScheduler(opts.releaseAnalysisCron, config.llm);
   scheduler.start();
 }

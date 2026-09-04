@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Dependency } from "../types.ts";
-import type { CycloneDxDocument } from "./cyclonedx.ts";
+import type { CycloneDxDocument } from "./cyclonedx.types.ts";
 
 const execFileAsync = promisify(execFile);
 

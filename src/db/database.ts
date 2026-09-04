@@ -55,6 +55,27 @@ export class Database {
     `);
 
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS release_analysis_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ended_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running'
+      )
+    `);
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS release_analysis_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL REFERENCES release_analysis_runs(id),
+        package_id INTEGER NOT NULL REFERENCES packages(id),
+        release_tag TEXT NOT NULL,
+        is_breaking INTEGER NOT NULL,
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS suggestions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         dependency TEXT NOT NULL,

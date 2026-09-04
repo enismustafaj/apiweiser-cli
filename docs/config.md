@@ -1,15 +1,8 @@
 # Config
 
-> **Currently unused.** This was built to hold LLM credentials for
-> `ChangelogSourceAgent`, which has since been removed —
-> `DataSourcesModule` derives changelog sources from npm registry metadata
-> now, no LLM involved (see [`docs/data-sources.md`](./data-sources.md)).
-> Nothing constructs `main.ts`'s CLI with a config anymore. Left in place
-> rather than deleted, in case a future feature needs an LLM again; ask if
-> you want it removed instead.
-
 `src/config/` — the CLI's own config file, which the user has to fill in
-themselves (an LLM API key, at minimum) before `--path` will run.
+themselves (an LLM API key, at minimum) before `--release-analysis-cron`
+will run.
 
 ```
 src/config/
@@ -39,13 +32,15 @@ the scanned repo.
 
 `url` is passed straight through as the OpenAI SDK's `baseURL` — pointing
 it at a self-hosted or proxy endpoint that speaks the same wire format
-works, not just `api.openai.com` directly.
+works (e.g. a Groq endpoint, verified during testing), not just
+`api.openai.com` directly.
 
 ## `ConfigLoader.load(configPath?)`
 
-Not currently called anywhere (see the note above). When it was wired up,
-called once at the top of `main.ts` before anything else ran, so a missing
-or incomplete config failed fast, before any scanning work started.
+Called once, at the top of `main.ts`, but only when `--release-analysis-cron`
+is passed — `--path` and `--data-sources-cron` don't need an LLM at all,
+so they don't load this. A missing or incomplete config fails fast, before
+`ReleaseAnalysisScheduler` starts.
 
 - **File missing**: writes the template above (with an empty `apiKey`) to
   `configPath`, then throws, telling the user where to fill it in. The next
@@ -56,3 +51,13 @@ or incomplete config failed fast, before any scanning work started.
 
 `configPath` defaults to the real location above; tests pass an explicit
 temp path instead so they don't touch the user's actual config.
+
+## Who uses it
+
+`main.ts`'s `--release-analysis-cron` handler loads it and passes
+`config.llm` into `new ReleaseAnalysisScheduler(cronExpression, config.llm)`,
+which forwards it to `ReleaseAnalysisModule`, which constructs
+`BreakingChangeClassifierAgent` from it (see
+[`docs/data-sources.md`](./data-sources.md) § Release analysis). This is
+the only thing in the CLI that needs an LLM — `DataSourcesModule`'s
+changelog-_source_ lookups are npm-registry-only, no LLM involved.

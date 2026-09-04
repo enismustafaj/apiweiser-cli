@@ -9,3 +9,20 @@ export interface PendingLookup {
 export interface NpmPackageManifest {
   repository?: { url?: string } | string;
 }
+
+export interface DataSourceEntry {
+  packageId: number;
+  url: string;
+}
+
+export interface LatestRelease {
+  tagName: string;
+  body: string;
+}
+
+export interface BreakingChangeClassification {
+  isBreaking: boolean;
+  summary: string;
+}
+
+export type ReleaseAnalysisRunStatus = "running" | "completed" | "failed";

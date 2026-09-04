@@ -10,7 +10,7 @@ src/suggestions/
   tool/renovate-tool.ts         class RenovateTool  - subprocess to `npx renovate`
   db/suggestions-repository.ts  class SuggestionsRepository(db)
   index.ts                      class SuggestionsModule - wires the two together
-  scheduler.ts                  class Scheduler(repoPath, cronExpr)
+  suggestions-scheduler.ts      class Scheduler(repoPath, cronExpr)
 ```
 
 ## `RenovateTool`
