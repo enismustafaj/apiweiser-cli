@@ -1,7 +1,3 @@
-// Wraps the CLI's sqlite database, used to persist scan results (call
-// sites). Stored in a directory dedicated to this CLI
-// (~/.apiweiser-scanner), separate from whatever repo is being scanned.
-
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -19,10 +15,6 @@ export class Database {
     this.migrate();
   }
 
-  // No migration framework here (yet) - schema changes are additive
-  // CREATE TABLE IF NOT EXISTS statements. If you change an existing
-  // table's columns, delete ~/.apiweiser-scanner/db.sqlite and let it
-  // recreate; there's no ALTER TABLE step.
   private migrate(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS packages (
@@ -42,6 +34,15 @@ export class Database {
         snippet TEXT NOT NULL,
         api_surface TEXT NOT NULL,
         scanned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS data_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_id INTEGER NOT NULL REFERENCES packages(id),
+        url TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -70,9 +71,3 @@ export class Database {
     this.db.close();
   }
 }
-
-// Single shared connection to the CLI's sqlite db, so modules don't each
-// open their own handle to the same file.
-export const db = new Database();
-
-process.on("exit", () => db.close());

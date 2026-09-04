@@ -1,7 +1,7 @@
 // Suggestions module: runs Renovate via RenovateTool to get proposed
 // version updates, and persists them via SuggestionsRepository.
 
-import { db } from "../db/database.ts";
+import { db } from "../db/singleton.ts";
 import { SuggestionsRepository } from "./db/suggestions-repository.ts";
 import { RenovateTool } from "./tool/renovate-tool.ts";
 import type { RenovateUpdate } from "./types.ts";

@@ -1,8 +1,3 @@
-// Tool: generates the dependency list for a repo via SBOM.
-// Runs `npm sbom` as a subprocess and writes the raw CycloneDX output to a
-// cache directory dedicated to this CLI (~/.apiweiser-scanner/sbom), keyed
-// by the repo's resolved path so multiple repos don't collide.
-
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";

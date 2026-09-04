@@ -9,20 +9,28 @@ once, shared by every module.
 - **Engine**: Node's stdlib `node:sqlite` (`DatabaseSync`), not a
   third-party package.
 - **Access pattern**: `Database` owns the connection and schema; it doesn't
-  know about `packages`, `call_sites`, or `suggestions` as domain concepts
-  beyond creating their tables. Each module has its own `*Repository` class
-  (`PackagesRepository`, `CallSitesRepository`, `SuggestionsRepository`)
-  that takes a `Database` injected via constructor and runs its own queries
-  against `db.connection`. See [`docs/scanner.md`](./scanner.md) and
+  know about `packages`, `call_sites`, `data_sources`, or `suggestions` as
+  domain concepts beyond creating their tables. Each module has its own
+  `*Repository` class (`PackagesRepository`, `CallSitesRepository`,
+  `DataSourcesRepository`, `SuggestionsRepository`) that takes a `Database`
+  injected via constructor and runs its own queries against
+  `db.connection`. See [`docs/scanner.md`](./scanner.md),
+  [`docs/data-sources.md`](./data-sources.md), and
   [`docs/suggestions.md`](./suggestions.md) for how each repository is used.
 - **Foreign keys are enforced**: `PRAGMA foreign_keys = ON` is run once in
   the constructor. SQLite disables FK enforcement by default per connection
-  — without this pragma, `call_sites.package_id` would silently accept
-  invalid references instead of raising an error.
-- **Singleton**: `export const db = new Database()` at the bottom of
-  `database.ts` — the shared instance every repository is constructed with.
-  `Database` itself stays exported too, so tests (or anything needing an
-  isolated db) can do `new Database(customPath)`.
+  — without this pragma, `call_sites.package_id`/`data_sources.package_id`
+  would silently accept invalid references instead of raising an error.
+- **Singleton lives in a separate file**: `src/db/singleton.ts` —
+  `export const db = new Database()`, plus the `process.on("exit", ...)`
+  close hook. Deliberately _not_ in `database.ts` itself: importing the
+  `Database` class (e.g. from a test, to build an isolated `:memory:`
+  instance) must not have the side effect of opening the real
+  `~/.apiweiser-scanner/db.sqlite` file. When that side effect lived in
+  `database.ts`, every test file that imported the class triggered it too,
+  and concurrent test runs raced to open and migrate the same real file.
+  `database.ts` now only exports the `Database` class — no side effects on
+  import.
 
 ## Schema
 
@@ -39,6 +47,14 @@ this is a dimension/reference table, not an event log. Re-scanning a repo
 `UPSERT`s (`ON CONFLICT(name) DO UPDATE`) rather than inserting new rows, so
 `current_version`/`type` always reflect the most recent scan.
 
+`upsert()` uses `... RETURNING id` and writes the result straight onto each
+`Dependency` object's `id` field, in the same statement as the
+insert/update — no separate `SELECT` afterward. Downstream code that
+already has the (now-mutated) `Dependency` in hand, like
+`DataSourcesRepository`, uses `dependency.id` directly instead of looking
+the id up again by name. `CallSitesRepository` is the exception — see the
+`call_sites` note below.
+
 | column            | type    | notes                                    |
 | ----------------- | ------- | ---------------------------------------- |
 | `id`              | INTEGER | primary key, autoincrement               |
@@ -53,8 +69,11 @@ dependency's API is actually called (see [`docs/scanner.md`](./scanner.md)
 for how `Scanner` finds these). `package_id` is a foreign key into
 `packages` — `DependenciesModule` always upserts packages first, so the
 package a call site belongs to is guaranteed to exist by the time the call
-site is inserted (see `CallSitesRepository`'s `(SELECT id FROM packages
-WHERE name = ?)` subquery, and the FK enforcement note above).
+site is inserted. Unlike `data_sources` below, `CallSitesRepository` still
+resolves `package_id` via a `(SELECT id FROM packages WHERE name = ?)`
+subquery rather than `dependency.id` — `CallSite` only carries the
+dependency's name (from `Scanner`, which doesn't touch the database), not
+the `Dependency` object itself, so there's no `id` on hand to reuse.
 
 | column        | type    | notes                                                  |
 | ------------- | ------- | ------------------------------------------------------ |
@@ -73,6 +92,25 @@ SELECT p.name AS dependency, cs.file, cs.line, cs.api_surface
 FROM call_sites cs
 JOIN packages p ON p.id = cs.package_id
 ```
+
+### `data_sources`
+
+Populated by `DataSourcesRepository`, one row per package `DataSourcesModule`
+found a changelog source for (see
+[`docs/data-sources.md`](./data-sources.md)). Only ever written for
+packages that are brand new to `packages` — a version bump on a package
+already known doesn't produce a new row here.
+
+| column       | type    | notes                                          |
+| ------------ | ------- | ---------------------------------------------- |
+| `id`         | INTEGER | primary key, autoincrement                     |
+| `package_id` | INTEGER | `REFERENCES packages(id)`, not null            |
+| `url`        | TEXT    | GitHub releases page or raw `CHANGELOG.md` URL |
+| `created_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`                |
+
+`DataSourcesRepository.insert()` takes `Map<packageId, url>` and inserts
+`package_id` directly — no subquery, since `DataSourcesModule` already has
+each `Dependency`'s `id` (set by `PackagesRepository.upsert()`) on hand.
 
 ### `suggestions`
 

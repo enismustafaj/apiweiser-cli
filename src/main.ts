@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { ConfigLoader } from "./config/config-loader.ts";
 import { DependenciesModule } from "./dependencies/index.ts";
 import { Scheduler } from "./suggestions/scheduler.ts";
 
@@ -15,7 +16,8 @@ app.parse(process.argv);
 const opts = app.opts();
 
 if (opts.path) {
-  const dependencies = new DependenciesModule();
+  const config = new ConfigLoader().load();
+  const dependencies = new DependenciesModule(config.llm);
   await dependencies.scan(opts.path);
 
   if (opts.suggestionsCron) {
