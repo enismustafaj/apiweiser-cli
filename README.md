@@ -99,5 +99,7 @@ Each module has its own doc:
   lookup queue, and the daily release-analysis/breaking-change classifier
 - [`docs/suggestions.md`](docs/suggestions.md) — the Renovate-backed
   version-suggestion module and its cron scheduler
+- [`docs/change-requests.md`](docs/change-requests.md) — scaffolding for
+  turning a breaking update into a change request (not implemented yet)
 - [`docs/config.md`](docs/config.md) — the CLI's config file (only needed
   for `--release-analysis-cron`)

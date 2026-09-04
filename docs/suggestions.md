@@ -121,9 +121,35 @@ Thin orchestrator, same shape as `DependenciesModule`:
 async generate(repoPath: string): Promise<RenovateUpdate[]> {
   const updates = await this.renovateTool.run(repoPath);
   this.suggestionsRepository.insert(updates);
+
+  for (const update of updates) {
+    this.raiseChangeRequestIfBreaking(update);
+  }
+
   return updates;
 }
 ```
+
+### Raising change requests for breaking updates
+
+For each update Renovate proposes, checks whether its `newVersion` was
+already classified by `ReleaseAnalysisModule` (see
+[`docs/data-sources.md`](./data-sources.md) § Release analysis) —
+`ReleaseAnalysisRepository.findResult(dependency, newVersion)` looks up
+`release_analysis_results` by package name and matches `release_tag`
+against both `newVersion` and `v${newVersion}` (GitHub tags are often
+`v`-prefixed, Renovate's version isn't). No match (not classified yet, or
+no `data_sources` entry at all) means nothing happens — silently, since an
+update simply not yet analyzed isn't an error.
+
+If a match says `isBreaking`, raises a change request via
+`ChangeRequestsModule.create` (see [`docs/change-requests.md`](./change-requests.md)),
+attaching the package's current call sites
+(`CallSitesRepository.findForDependency`) so whoever handles the change
+request can see what actually calls the package. `create()` is not
+implemented yet — the call is wrapped in try/catch and logs on failure,
+same resilience pattern as everywhere else, so this doesn't crash
+`generate()` for real matches until change-requests lands.
 
 ## `Scheduler`
 

@@ -16,6 +16,17 @@ export class CallSitesRepository {
     this.db = db;
   }
 
+  findForDependency(name: string): CallSite[] {
+    return this.db.connection
+      .prepare(
+        `SELECT p.name AS dependency, cs.file, cs.line, cs.snippet, cs.api_surface AS apiSurface
+         FROM call_sites cs
+         JOIN packages p ON p.id = cs.package_id
+         WHERE p.name = ?`,
+      )
+      .all(name) as unknown as CallSite[];
+  }
+
   insert(callSites: CallSite[]): void {
     const insert = this.db.connection.prepare(
       `INSERT INTO call_sites (package_id, file, line, snippet, api_surface)

@@ -81,3 +81,26 @@ test("deleteForDependencies is a no-op for an empty list", () => {
   };
   assert.equal(count.n, 1);
 });
+
+test("findForDependency returns only the named dependency's call sites", () => {
+  const db = new Database(":memory:");
+  new PackagesRepository(db).upsert([
+    { name: "commander", currentVersion: "15.0.0", type: "direct" },
+    { name: "ts-morph", currentVersion: "28.0.0", type: "direct" },
+  ]);
+  const callSites = new CallSitesRepository(db);
+  callSites.insert([
+    callSite({ dependency: "commander" }),
+    callSite({ dependency: "ts-morph", apiSurface: "Project" }),
+  ]);
+
+  const result = callSites.findForDependency("commander");
+
+  assert.deepEqual(plainRows(result), [callSite({ dependency: "commander" })]);
+});
+
+test("findForDependency returns an empty array for a dependency with no call sites", () => {
+  const { callSites } = setup();
+
+  assert.deepEqual(callSites.findForDependency("commander"), []);
+});

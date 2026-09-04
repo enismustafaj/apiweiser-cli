@@ -1,6 +1,3 @@
-// Registers each ReleaseAnalysisModule run (when it started, ended, and
-// its outcome) and the per-package results produced during it.
-
 import type { Database } from "../../db/database.ts";
 import type { BreakingChangeClassification, ReleaseAnalysisRunStatus } from "../types.ts";
 
@@ -26,6 +23,22 @@ export class ReleaseAnalysisRepository {
         `UPDATE release_analysis_runs SET status = ?, ended_at = CURRENT_TIMESTAMP WHERE id = ?`,
       )
       .run(status, runId);
+  }
+
+  findResult(packageName: string, version: string): BreakingChangeClassification | null {
+    const row = this.db.connection
+      .prepare(
+        `SELECT rar.is_breaking AS isBreaking, rar.summary
+         FROM release_analysis_results rar
+         JOIN packages p ON p.id = rar.package_id
+         WHERE p.name = ? AND rar.release_tag IN (?, ?)
+         ORDER BY rar.created_at DESC
+         LIMIT 1`,
+      )
+      .get(packageName, version, `v${version}`) as
+      { isBreaking: number; summary: string } | undefined;
+    if (!row) return null;
+    return { isBreaking: row.isBreaking === 1, summary: row.summary };
   }
 
   insertResult(
