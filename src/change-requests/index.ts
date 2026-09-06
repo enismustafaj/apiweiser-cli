@@ -9,6 +9,7 @@ import { CodemodRegistry } from "./registry.ts";
 import type {
   ChangeRequestInput,
   ChangeRequestResult,
+  CodemodAgent,
   CodemodApplicationInput,
   CodemodGenerationInput,
   CommandResult,
@@ -55,6 +56,7 @@ interface Verifier {
 
 export interface ChangeRequestsModuleOptions {
   codex?: CodexCodemodAgentConfig;
+  agent?: CodemodAgent;
   registry?: CodemodRegistry;
   generator?: CodemodResolver;
   applier?: PackageApplier;
@@ -68,8 +70,8 @@ export class ChangeRequestsModule {
 
   constructor(options: ChangeRequestsModuleOptions = {}) {
     const registry = options.registry ?? new CodemodRegistry();
-    this.generator =
-      options.generator ?? new CodemodGenerator(new CodexCodemodAgent(options.codex), registry);
+    const agent = options.agent ?? new CodexCodemodAgent(options.codex);
+    this.generator = options.generator ?? new CodemodGenerator(agent, registry);
     this.applier = options.applier ?? new CodemodApplier();
     this.verifier = options.verifier ?? new RepositoryVerifier();
   }
