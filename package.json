@@ -26,6 +26,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@openai/codex-sdk": "^0.153.4",
     "commander": "^15.0.0",
     "node-cron": "^4.6.0",
     "openai": "^7.10.0",
