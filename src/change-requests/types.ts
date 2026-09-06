@@ -48,11 +48,14 @@ export interface CommandResult extends VerificationCommand {
   stderr: string;
 }
 
-export interface ChangeRequestInput {
-  packageName: string;
-  version: string;
-  newVersion: string;
-  callSites: CallSite[];
-  isBreaking: boolean;
-  summary: string;
+export interface ChangeRequestInput extends CodemodGenerationInput {
+  repoPath: string;
+  verificationCommands?: VerificationCommand[];
+}
+
+export interface ChangeRequestResult {
+  codemod: CodemodPackage;
+  reusedCodemod: boolean;
+  application: CommandResult;
+  verification: CommandResult[];
 }

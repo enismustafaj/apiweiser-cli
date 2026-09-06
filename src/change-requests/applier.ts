@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { repositoryRelativePath } from "./paths.ts";
 import { runProcess } from "./process.ts";
 import type { ProcessRunner } from "./process.ts";
 import type { CodemodApplicationInput, CodemodPackage, CommandResult } from "./types.ts";
@@ -40,18 +41,6 @@ export class CodemodApplier {
     }
     return result;
   }
-}
-
-function repositoryRelativePath(repoPath: string, path: string): string {
-  const absolutePath = isAbsolute(path) ? resolve(path) : resolve(repoPath, path);
-  const relativePath = relative(repoPath, absolutePath);
-  if (
-    relativePath === ".." ||
-    relativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-  ) {
-    throw new Error(`Path is outside repository: ${path}`);
-  }
-  return relativePath;
 }
 
 function assertIdentity(codemod: CodemodPackage, input: CodemodApplicationInput): void {
