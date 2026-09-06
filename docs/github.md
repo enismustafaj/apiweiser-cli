@@ -9,11 +9,42 @@ describing the migration.
 ```
 src/github/
   types.ts                       PullRequestRequest, PullRequestResult, GitHubRemote
+  tool/dependency-bumper.ts       class DependencyBumper
   tool/codemod-applier.ts        class CodemodApplier
   tool/git-tool.ts               class GitTool
   pull-request-service.ts        class PullRequestService(config)
   index.ts                       class GithubModule(config)
 ```
+
+## `DependencyBumper.bump(repoPath, packageName, newVersion)`
+
+Found missing the hard way: applying the chalk v4→v5 codemod to a real
+dependent produced a PR that migrated call-site syntax to v5's API but
+still declared `chalk: "^4.1.0"` in `package.json` - the installed v4
+doesn't have the named exports the migrated code now imports, so the PR
+didn't even compile. `CodemodApplier`'s transform only touches source
+files (an AST-based tool has no business editing package manifests or
+running installs), so this is a separate, deterministic step:
+
+1. Skips entirely if `packageName` isn't declared in `dependencies` or
+   `devDependencies` in the target repo's `package.json` - nothing to
+   bump (also skips `peerDependencies`; bumping a peer range without the
+   consuming project's own say-so is a bigger call than this pipeline
+   should make unattended).
+2. Detects the target repo's package manager by lockfile presence
+   (`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, else npm) and runs that
+   manager's own `add`/`install` command (`npm install <pkg>@<version>`,
+   `yarn add <pkg>@<version>`, `pnpm add <pkg>@<version>`, `--save-dev`/
+   `--dev` if it was a devDependency) - this updates `package.json` _and_
+   the lockfile together, correctly, rather than hand-editing JSON and
+   hoping the lockfile stays consistent.
+
+Not covered by an automated test beyond the "not a direct dependency, stay
+a no-op" guard - the actual install is network-bound, same reasoning as
+`RenovateTool` (see [`docs/suggestions.md`](./suggestions.md)). Verified in
+practice: running this against the `ts-loader` PR above (bump to
+`chalk@^5.0.0`, `yarn install`) turned a non-compiling PR into one that
+passes `tsc --noEmit` cleanly from a fresh clone.
 
 ## `CodemodApplier.apply(codemodPath, targetRepoPath)`
 
@@ -72,16 +103,17 @@ the created PR's `html_url`.
 
 ## `GithubModule.openPullRequestForCodemod(request)`
 
-1. `CodemodApplier.apply(request.codemodPath, request.repoPath)`.
-2. `GitTool.hasChanges(request.repoPath)` — if false, returns
+1. `DependencyBumper.bump(request.repoPath, request.packageName, request.newVersion)`.
+2. `CodemodApplier.apply(request.codemodPath, request.repoPath)`.
+3. `GitTool.hasChanges(request.repoPath)` — if false, returns
    `{ created: false, reason: "codemod produced no changes" }` without
    touching git at all. Not a failure: a codemod's real call sites might
    only use API surface that didn't actually change (verified in practice -
    running the chalk v4→v5 codemod against a real dependent produced zero
    edits, because that repo only used style methods chalk v5 left alone).
-3. `GitTool.remoteRepo(...)` — if `origin` isn't a GitHub remote, returns
+4. `GitTool.remoteRepo(...)` — if `origin` isn't a GitHub remote, returns
    `{ created: false, reason: "origin remote isn't a GitHub repo" }`.
-4. Branches as `apiweiser-cli/<packageName>-<newVersion>` (sanitized),
+5. Branches as `apiweiser-cli/<packageName>-<newVersion>` (sanitized),
    commits everything with `Migrate <packageName> <version> -> <newVersion>`,
    pushes it, then opens the PR - title is the same migration summary, body
    is the changelog summary plus a pointer to the codemod package's local

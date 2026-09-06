@@ -5,12 +5,14 @@
 
 import type { GithubConfig } from "../config/config.ts";
 import { CodemodApplier } from "./tool/codemod-applier.ts";
+import { DependencyBumper } from "./tool/dependency-bumper.ts";
 import { GitTool } from "./tool/git-tool.ts";
 import { PullRequestService } from "./pull-request-service.ts";
 import type { PullRequestRequest, PullRequestResult } from "./types.ts";
 
 export class GithubModule {
   private readonly codemodApplier = new CodemodApplier();
+  private readonly dependencyBumper = new DependencyBumper();
   private readonly git: GitTool;
   private readonly pullRequests: PullRequestService;
 
@@ -20,6 +22,12 @@ export class GithubModule {
   }
 
   async openPullRequestForCodemod(request: PullRequestRequest): Promise<PullRequestResult> {
+    // The codemod's transform only migrates call-site syntax - bumping the
+    // dependency itself (package.json + lockfile) is a separate,
+    // deterministic step (see DependencyBumper). Skipping it left a real PR
+    // that migrated to chalk v5's API while still declaring ^4.1.0 - source
+    // that referenced named exports that don't exist in the installed v4.
+    await this.dependencyBumper.bump(request.repoPath, request.packageName, request.newVersion);
     await this.codemodApplier.apply(request.codemodPath, request.repoPath);
 
     // A codemod applying cleanly but touching nothing isn't a failure -
