@@ -166,13 +166,12 @@ scheduler.stop();
 
 ## CLI
 
-```
-node src/main.ts --path <repo> --data-sources-cron "<cron expression>"
-```
-
-`--data-sources-cron` doesn't need `--path` — the queue is global (keyed
-by package name, not tied to any one repo), so draining it can run on its
-own schedule independently of any particular scan.
+Not behind a flag - `main.ts` always constructs and starts this
+`Scheduler` (after the required `--path` scan finishes), with a fixed
+once-a-day cron (`"0 0 * * *"`; the class itself still takes any
+expression, see above). The queue itself is global (keyed by package name,
+not tied to any one repo) - `--path` is required by the CLI regardless,
+but draining this particular queue doesn't depend on what was scanned.
 
 ## Release analysis
 
@@ -250,17 +249,16 @@ scheduler.start();
 scheduler.stop();
 ```
 
-The cron expression isn't hardcoded to daily — it's passed in, same as
-the other schedulers — but daily is the cadence this was built for, and
-what `main.ts`'s flag description recommends.
+The cron expression is a constructor argument, not hardcoded inside the
+class - same as the other schedulers. `main.ts` always passes the fixed
+daily expression, though; it's not behind a CLI flag (see below).
 
 ### CLI
 
-```
-node src/main.ts --release-analysis-cron "0 0 * * *"
-```
-
-Also doesn't need `--path` — `data_sources` is global, same reasoning as
-`--data-sources-cron`. **Does** need a valid `~/.apiweiser-cli/config.json`
-(see [`docs/config.md`](./config.md)) — this is the one thing in the CLI
-that still needs an LLM.
+Not behind a flag - `main.ts` always constructs and starts this
+`Scheduler` too, alongside the changelog-lookup one. `data_sources` itself
+is global (not tied to what `--path` scanned), same reasoning as the
+lookup queue - though `--path` is still required by the CLI regardless.
+**Does** need a valid `~/.apiweiser-cli/config.json` (see
+[`docs/config.md`](./config.md)) — since this scheduler is always on, so
+is that requirement: every invocation of the CLI needs a filled-in config.

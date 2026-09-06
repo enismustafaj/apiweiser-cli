@@ -1,27 +1,59 @@
 # apiweiser-cli
 
-Scans a repo's dependencies (via SBOM), finds where each one is actually
-called in the source (via ts-morph), tracks version updates Renovate
-proposes, derives where to fetch each dependency's release changelog from
-(npm registry metadata, no LLM involved), and — on a daily schedule —
-classifies each package's latest release as breaking or not, via an LLM.
-Everything is persisted to a local sqlite db.
+A tool that watches a repo's dependencies for you: it finds where each one
+is actually used in your code, tracks version updates as they're proposed,
+figures out whether a given update is breaking, and — when it is — has a
+coding agent write, test, and open a PR for the migration automatically.
 
-## Requirements
+## What it does
 
-- Node.js 22+ (uses `node:sqlite` and runs `.ts` files directly — no
-  build step, no ts-node)
+1. **Scan** (`--path`) — reads your repo's SBOM, records every dependency,
+   and finds every place in your source each one is actually called.
+2. **Look up changelogs** (daily) — for any dependency it's never seen
+   before, figures out where its GitHub releases live.
+3. **Classify releases** (daily) — fetches each dependency's latest GitHub
+   release and asks an LLM whether it's a breaking change.
+4. **Track suggestions** (daily) — runs Renovate to see what version
+   updates are available for your repo.
+5. **Raise change requests** (automatic, once 3 and 4 agree an update is
+   breaking) — asks a coding agent to build and test a codemod for the
+   migration, applies it to your repo, and opens a PR.
 
-## Setup
+Steps 2-4 each run once a day, in that order, for as long as the process
+keeps running.
+
+Everything is persisted to a local sqlite database, separate from any repo
+you point it at.
+
+## Prerequisites
+
+- **Node.js 22+** — runs `.ts` files directly, no build step
+- **git**, on `PATH`
+- **A coding agent CLI, already installed and logged in** — [Claude
+  Code](https://docs.claude.com/en/docs/claude-code) or
+  [Codex](https://github.com/openai/codex). This tool shells out to it; it
+  doesn't set up an account for you.
+- **A GitHub personal access token** with **Contents** and **Pull
+  requests** write access on whatever repo you point `--path` at (a
+  fine-grained token scoped to just that repo is the safer choice; create
+  one at
+  [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new))
+- **An LLM API key** from any OpenAI-compatible provider (OpenAI itself, or
+  a compatible endpoint like Groq)
+
+## Install
 
 ```sh
 npm install
 ```
 
-No config file needed for scanning or changelog-source lookups.
-`--release-analysis-cron` and `--suggestions-cron` (see below) need it — the
-first time either is used, it creates `~/.apiweiser-cli/config.json` for
-you and exits with an error asking you to fill it in:
+## Configure
+
+Every run needs `~/.apiweiser-cli/config.json` filled in — even a plain
+scan, since the process always starts three daily background schedulers
+alongside it (see [Usage](#usage)). Run the CLI once with no config and it
+creates a template for you there, then exits with an error telling you to
+fill it in:
 
 ```json
 {
@@ -40,67 +72,63 @@ you and exits with an error asking you to fill it in:
 }
 ```
 
-`llm.url` is passed straight through as the OpenAI SDK's `baseURL`, so a
-self-hosted/proxy endpoint works too (an OpenAI-compatible Groq endpoint
-was used during testing). `codingAgent` is which coding agent CLI raises
-change requests for breaking updates (see
-[`docs/change-requests.md`](docs/change-requests.md)) — also run this once,
-so that agent actually knows how to build a codemod package:
+| Field                 | What it's for                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `llm.apiKey`          | Your API key for whichever provider `llm.url` points at                                            |
+| `llm.url`             | An OpenAI-compatible `baseURL` — `https://api.openai.com/v1`, or a compatible provider like Groq   |
+| `llm.model`           | Model name at that endpoint                                                                        |
+| `codingAgent.command` | `"claude"` for Claude Code, `"codex"` for Codex - whichever you have installed                     |
+| `codingAgent.args`    | Flags that put that CLI into non-interactive mode - `["-p"]` for Claude Code, `["exec"]` for Codex |
+| `github.token`        | The PAT from [Prerequisites](#prerequisites) above                                                 |
+
+One more one-time setup step, so your coding agent actually knows how to
+build a codemod package (see
+[`docs/change-requests.md`](docs/change-requests.md)):
 
 ```sh
 npx codemod ai --harness claude --project --no-interactive
 ```
 
-`github.token` (a PAT with repo/PR write access) is what
-[`docs/github.md`](docs/github.md) uses both to push the branch and to
-open the PR once a codemod's built and tested — no separate `git` push
-credentials needed for that repo.
-
-See [`docs/config.md`](docs/config.md).
+(swap `claude` for `codex` if that's what you configured).
 
 ## Usage
+
+There's only one flag, and it's required:
 
 ```sh
 node src/main.ts --path <path-to-repo>
 ```
 
-Scans the target repo: generates its SBOM, upserts its dependencies,
-re-scans call sites for anything new or version-changed, and queues
-anything brand new for a changelog-source lookup. Safe to re-run —
-unchanged dependencies are skipped entirely, and this doesn't make any
-network calls beyond the SBOM/Renovate tooling itself, so it's fast (a
-769-dependency repo scans in a few seconds).
+Scans `<path-to-repo>` once (generates its SBOM, records its dependencies,
+finds every call site, and queues anything brand new for a
+changelog-source lookup), then settles into a long-running process running
+three daily schedulers against `<path-to-repo>`, in order: draining the
+changelog-lookup queue, classifying releases as breaking or not, and
+checking Renovate for version update suggestions. Whenever a suggestion
+turns out to already be classified as breaking, the automation kicks in: a
+coding agent builds and tests a codemod for the migration, applies it, and
+opens a PR — no further action needed from you beyond reviewing it. Safe to
+re-run the scan part — unchanged dependencies are skipped entirely, so
+it's fast even on a large repo. Leave the process running.
 
-```sh
-node src/main.ts --path <path-to-repo> --suggestions-cron "<cron expression>"
-```
+All state lives in `~/.apiweiser-cli/` — the sqlite db, the config file,
+SBOM/Renovate caches, and generated codemod packages — separate from
+whatever repo you point `--path` at.
 
-Also starts a Renovate-backed scheduler that periodically checks for
-version update suggestions, raising a change request (see below) for any
-whose new version was already classified as breaking. Needs a filled-in
-config (see Setup above). The process keeps running instead of exiting
-after the scan.
+## What to expect
 
-```sh
-node src/main.ts --data-sources-cron "<cron expression>"
-```
-
-Drains the changelog-source lookup queue (see above) in rate-limit-sized
-batches, on its own schedule. Doesn't need `--path` — the queue is global,
-not tied to any one repo.
-
-```sh
-node src/main.ts --release-analysis-cron "0 0 * * *"
-```
-
-Once a day (the intended cadence — the expression itself is up to you):
-fetches every known package's latest GitHub release and classifies
-whether it's a breaking change, via an LLM. Also doesn't need `--path`.
-Needs a filled-in config (see Setup above).
-
-All state lives in `~/.apiweiser-cli/` — the sqlite db, the config
-file, and SBOM/Renovate report caches — separate from whatever repo you
-point `--path` at.
+- **The first scan of a large repo can take a few minutes** the first
+  time, dominated by the SBOM/dependency-scanning tooling; re-scans are
+  fast since only new or version-changed dependencies get re-processed.
+- **Not every breaking update gets a PR.** If your repo's actual call
+  sites don't touch whatever part of the API changed, the generated
+  codemod correctly makes no changes, and no PR is opened — that's
+  expected, not a bug.
+- **A change request can take several minutes.** Building and testing a
+  codemod is a real coding-agent session, not a single API call.
+- **PRs are opened directly on the repo `--path` points at** (from a
+  branch named `apiweiser-cli/<package>-<version>`), not a fork. Point
+  this at a repo you (or your token) actually have write access to.
 
 ## Docker
 
@@ -114,9 +142,9 @@ docker run --rm \
 
 The repo being scanned is mounted read-only at `/repo`. The named volume
 persists `~/.apiweiser-cli/` (db, config, caches) across runs — drop it and
-you lose scan history/config. For a scheduler flag (`--suggestions-cron`,
-`--data-sources-cron`, `--release-analysis-cron`), add `-d` to run detached;
-the process keeps running instead of exiting after one scan.
+you lose scan history/config. Every run is long-running (see
+[Usage](#usage)), so add `-d` to run detached rather than blocking the
+terminal.
 
 ## Development
 
@@ -128,7 +156,8 @@ npm run format:check
 
 ## How it works
 
-Each module has its own doc:
+The README above covers using the CLI. For how each piece is actually
+built:
 
 - [`docs/scanner.md`](docs/scanner.md) — how `Scanner` resolves call sites
   via ts-morph's type checker (not import-tracing)
@@ -142,5 +171,4 @@ Each module has its own doc:
   agent to build and test a codemod for a breaking update, "the codemod way"
 - [`docs/github.md`](docs/github.md) — applying a generated codemod to the
   monitored repo for real and opening a PR for it
-- [`docs/config.md`](docs/config.md) — the CLI's config file (needed for
-  `--release-analysis-cron` and `--suggestions-cron`)
+- [`docs/config.md`](docs/config.md) — the CLI's config file in more detail
