@@ -30,8 +30,7 @@ export class CodemodRegistry {
   }
 
   store(sourceDirectory: string): CodemodPackage {
-    const manifest = readManifest(sourceDirectory);
-    validatePackageFiles(sourceDirectory, manifest);
+    const manifest = validateCodemodPackage(sourceDirectory);
 
     const identity = identityFrom(manifest);
     const existing = this.find(identity);
@@ -56,11 +55,19 @@ export class CodemodRegistry {
   }
 
   private load(directory: string, id: string, expectedIdentity: CodemodIdentity): CodemodPackage {
-    const manifest = readManifest(directory);
-    validateIdentity(manifest, expectedIdentity);
-    validatePackageFiles(directory, manifest);
+    const manifest = validateCodemodPackage(directory, expectedIdentity);
     return { id, directory, manifest };
   }
+}
+
+export function validateCodemodPackage(
+  directory: string,
+  expectedIdentity?: CodemodIdentity,
+): CodemodPackageManifest {
+  const manifest = readManifest(directory);
+  if (expectedIdentity) validateIdentity(manifest, expectedIdentity);
+  validatePackageFiles(directory, manifest);
+  return manifest;
 }
 
 export function codemodId(identity: CodemodIdentity): string {

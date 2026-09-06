@@ -1,6 +1,8 @@
 import type { ChangeRequestInput } from "./types.ts";
 
-export { CodemodRegistry, codemodId } from "./registry.ts";
+export { CodemodGenerator } from "./generator.ts";
+export type { CodemodResolution } from "./generator.ts";
+export { CodemodRegistry, codemodId, validateCodemodPackage } from "./registry.ts";
 export { CodexCodemodAgent } from "./codex-agent.ts";
 export type { CodexCodemodAgentConfig } from "./codex-agent.ts";
 export type {
