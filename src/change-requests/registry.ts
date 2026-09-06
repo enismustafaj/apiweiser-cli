@@ -65,7 +65,14 @@ export class CodemodRegistry {
 
 export function codemodId(identity: CodemodIdentity): string {
   return createHash("sha256")
-    .update(JSON.stringify([identity.packageName, identity.fromVersion, identity.toVersion]))
+    .update(
+      JSON.stringify([
+        identity.datasource,
+        identity.packageName,
+        identity.fromVersion,
+        identity.toVersion,
+      ]),
+    )
     .digest("hex");
 }
 
@@ -88,6 +95,7 @@ function isManifest(value: unknown): value is CodemodPackageManifest {
   const manifest = value as Record<string, unknown>;
   return (
     manifest.schemaVersion === 1 &&
+    nonEmptyString(manifest.datasource) &&
     nonEmptyString(manifest.packageName) &&
     nonEmptyString(manifest.fromVersion) &&
     nonEmptyString(manifest.toVersion) &&
@@ -125,6 +133,7 @@ function isSafeRelativePath(path: string): boolean {
 
 function identityFrom(manifest: CodemodPackageManifest): CodemodIdentity {
   return {
+    datasource: manifest.datasource,
     packageName: manifest.packageName,
     fromVersion: manifest.fromVersion,
     toVersion: manifest.toVersion,
@@ -133,6 +142,7 @@ function identityFrom(manifest: CodemodPackageManifest): CodemodIdentity {
 
 function validateIdentity(actual: CodemodIdentity, expected: CodemodIdentity): void {
   if (
+    actual.datasource !== expected.datasource ||
     actual.packageName !== expected.packageName ||
     actual.fromVersion !== expected.fromVersion ||
     actual.toVersion !== expected.toVersion

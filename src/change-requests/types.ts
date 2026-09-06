@@ -1,6 +1,7 @@
 import type { CallSite } from "../dependencies/types.ts";
 
 export interface CodemodIdentity {
+  datasource: string;
   packageName: string;
   fromVersion: string;
   toVersion: string;
@@ -18,6 +19,16 @@ export interface CodemodPackage {
   id: string;
   directory: string;
   manifest: CodemodPackageManifest;
+}
+
+export interface CodemodGenerationInput extends CodemodIdentity {
+  changelog: string;
+  packageFile: string;
+  callSites: CallSite[];
+}
+
+export interface CodemodAgent {
+  generate(input: CodemodGenerationInput, outputDirectory: string): Promise<void>;
 }
 
 export interface ChangeRequestInput {

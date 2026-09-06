@@ -24,7 +24,12 @@ test("stores and finds a reusable codemod package", () => {
 
   assert.equal(
     stored.id,
-    codemodId({ packageName: "openai", fromVersion: "4.0.0", toVersion: "5.0.0" }),
+    codemodId({
+      datasource: "npm",
+      packageName: "openai",
+      fromVersion: "4.0.0",
+      toVersion: "5.0.0",
+    }),
   );
   assert.deepEqual(found, stored);
   assert.equal(readFileSync(join(stored.directory, "transform.mjs"), "utf8"), "// transform");
@@ -70,6 +75,7 @@ function generatedPackage(transform = "// transform"): string {
 function manifestFor(overrides: Partial<CodemodPackageManifest> = {}): CodemodPackageManifest {
   return {
     schemaVersion: 1,
+    datasource: "npm",
     packageName: "openai",
     fromVersion: "4.0.0",
     toVersion: "5.0.0",
