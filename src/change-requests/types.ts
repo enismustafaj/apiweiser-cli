@@ -31,6 +31,23 @@ export interface CodemodAgent {
   generate(input: CodemodGenerationInput, outputDirectory: string): Promise<void>;
 }
 
+export interface CodemodApplicationInput extends CodemodIdentity {
+  repoPath: string;
+  packageFile: string;
+  callSites: CallSite[];
+}
+
+export interface VerificationCommand {
+  command: string;
+  args?: string[];
+}
+
+export interface CommandResult extends VerificationCommand {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface ChangeRequestInput {
   packageName: string;
   version: string;

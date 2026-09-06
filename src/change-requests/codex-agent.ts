@@ -92,8 +92,8 @@ codemod.json must be valid JSON with this shape:
 
 transform.mjs must:
 - use only Node.js built-in modules;
-- be an idempotent command invoked as: node transform.mjs <request.json>;
-- read repoPath, packageFile, packageName, fromVersion, toVersion, and callSites from request.json;
+- be an idempotent command invoked as: node transform.mjs;
+- read one JSON request from standard input containing repoPath, packageFile, packageName, fromVersion, toVersion, and callSites;
 - update affected source files based on the API migration, using callSites as hints rather than hard-coded repository paths or snippets;
 - update the dependency version in packageFile;
 - never read or write outside repoPath;
