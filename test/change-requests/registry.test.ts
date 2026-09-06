@@ -47,13 +47,13 @@ test("does not overwrite an existing package with the same identity", () => {
   assert.equal(readFileSync(join(reused.directory, "transform.mjs"), "utf8"), "// first");
 });
 
-test("rejects package paths that escape the package directory", () => {
+test("rejects a non-standard package entrypoint", () => {
   const registry = new CodemodRegistry(temporaryDirectory("registry"));
   const generatedDirectory = generatedPackage();
   const manifest = manifestFor({ entrypoint: "../transform.mjs" });
   writeFileSync(join(generatedDirectory, "codemod.json"), JSON.stringify(manifest));
 
-  assert.throws(() => registry.store(generatedDirectory), /must stay inside/);
+  assert.throws(() => registry.store(generatedDirectory), /Invalid codemod.json/);
 });
 
 test("rejects a package whose required files are missing", () => {

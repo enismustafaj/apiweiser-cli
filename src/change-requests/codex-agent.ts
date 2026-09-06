@@ -1,4 +1,5 @@
 import { Codex } from "@openai/codex-sdk";
+import type { ModelReasoningEffort } from "@openai/codex-sdk";
 import { mkdirSync, readdirSync } from "node:fs";
 import type { CodemodAgent, CodemodGenerationInput } from "./types.ts";
 
@@ -6,7 +7,7 @@ export interface CodexCodemodAgentConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
-  reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+  reasoningEffort?: ModelReasoningEffort;
   networkAccessEnabled?: boolean;
 }
 
@@ -20,7 +21,7 @@ interface CodexClient {
     sandboxMode: "workspace-write";
     workingDirectory: string;
     skipGitRepoCheck: true;
-    modelReasoningEffort?: "low" | "medium" | "high" | "xhigh";
+    modelReasoningEffort?: ModelReasoningEffort;
     networkAccessEnabled: boolean;
     webSearchMode: "disabled";
     approvalPolicy: "never";

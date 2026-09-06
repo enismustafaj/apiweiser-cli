@@ -9,7 +9,7 @@ import {
   rmSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, normalize } from "node:path";
+import { join } from "node:path";
 import type { CodemodIdentity, CodemodPackage, CodemodPackageManifest } from "./types.ts";
 
 const MANIFEST_FILE = "codemod.json";
@@ -108,8 +108,8 @@ function isManifest(value: unknown): value is CodemodPackageManifest {
     nonEmptyString(manifest.toVersion) &&
     nonEmptyString(manifest.summary) &&
     manifest.runtime === "node" &&
-    nonEmptyString(manifest.entrypoint) &&
-    nonEmptyString(manifest.testEntrypoint)
+    manifest.entrypoint === "transform.mjs" &&
+    manifest.testEntrypoint === "transform.test.mjs"
   );
 }
 
@@ -119,23 +119,11 @@ function nonEmptyString(value: unknown): value is string {
 
 function validatePackageFiles(directory: string, manifest: CodemodPackageManifest): void {
   for (const path of [manifest.entrypoint, manifest.testEntrypoint]) {
-    if (!isSafeRelativePath(path)) {
-      throw new Error(`Codemod package path must stay inside its directory: ${path}`);
-    }
-
     const stat = lstatSync(join(directory, path), { throwIfNoEntry: false });
     if (!stat?.isFile()) {
       throw new Error(`Codemod package file does not exist: ${path}`);
     }
   }
-}
-
-function isSafeRelativePath(path: string): boolean {
-  if (isAbsolute(path)) return false;
-  const normalized = normalize(path);
-  return (
-    normalized !== ".." && !normalized.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-  );
 }
 
 function identityFrom(manifest: CodemodPackageManifest): CodemodIdentity {

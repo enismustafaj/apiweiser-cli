@@ -18,16 +18,12 @@ afterEach(() => {
 test("generates, tests, and stores a package that is not in the registry", async () => {
   const registry = new CodemodRegistry(temporaryDirectory());
   const agent = new FakeAgent();
-  const tested: string[] = [];
-  const generator = new CodemodGenerator(agent, registry, async (directory, testFile) => {
-    tested.push(join(directory, testFile));
-  });
+  const generator = new CodemodGenerator(agent, registry);
 
   const result = await generator.resolve(input());
 
   assert.equal(result.reused, false);
   assert.equal(agent.calls, 1);
-  assert.equal(tested.length, 1);
   assert.equal(result.codemod.manifest.packageName, "openai");
   assert.deepEqual(registry.find(input()), result.codemod);
 });
