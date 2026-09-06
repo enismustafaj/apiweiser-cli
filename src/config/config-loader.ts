@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { AppConfig } from "./config.ts";
+import type { AppConfig, CodemodAgentConfig } from "./config.ts";
 
 const DEFAULT_CONFIG_PATH = join(homedir(), ".apiweiser-cli", "config.json");
 
@@ -28,5 +28,14 @@ export class ConfigLoader {
       throw new Error(`Config at ${configPath} is missing llm.apiKey, llm.url, or llm.model.`);
     }
     return config;
+  }
+
+  // Unlike load(), this doesn't create a template or throw when the config
+  // file (or the codemodAgent section) is missing - raising change requests
+  // is opt-in, so plain suggestion scanning shouldn't require any config.
+  loadCodemodAgentConfig(configPath: string = DEFAULT_CONFIG_PATH): CodemodAgentConfig | undefined {
+    if (!existsSync(configPath)) return undefined;
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as AppConfig;
+    return config.codemodAgent;
   }
 }

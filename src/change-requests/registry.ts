@@ -1,19 +1,14 @@
 import { createHash } from "node:crypto";
-import {
-  cpSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { CodemodIdentity, CodemodPackage, CodemodPackageManifest } from "./types.ts";
+import type { CodemodIdentity, CodemodPackage } from "./types.ts";
 
-const MANIFEST_FILE = "codemod.json";
-
+// The registry never reads identity back out of a file the agent wrote (it
+// no longer dictates what files a codemod package contains - see
+// local-agent.ts) - callers always already have the identity they're
+// looking up or storing, so the manifest is synthesized from that rather
+// than parsed off disk.
 export class CodemodRegistry {
   private readonly rootDirectory: string;
 
@@ -21,19 +16,21 @@ export class CodemodRegistry {
     this.rootDirectory = rootDirectory;
   }
 
-  find(identity: CodemodIdentity): CodemodPackage | null {
+  find(identity: CodemodIdentity, summary: string): CodemodPackage | null {
     const id = codemodId(identity);
     const directory = join(this.rootDirectory, id);
     if (!existsSync(directory)) return null;
 
-    return this.load(directory, id, identity);
+    return { id, directory, manifest: { ...identity, summary } };
   }
 
-  store(sourceDirectory: string): CodemodPackage {
-    const manifest = validateCodemodPackage(sourceDirectory);
-
-    const identity = identityFrom(manifest);
-    const existing = this.find(identity);
+  // sourceDirectory is moved into place atomically (staged, then renamed) so
+  // a crash mid-copy never leaves a half-written entry, and so two separate
+  // CLI invocations generating the same upgrade concurrently (the registry's
+  // real, expected use case - many repos hitting the same breaking update)
+  // don't corrupt each other's output.
+  store(identity: CodemodIdentity, sourceDirectory: string, summary: string): CodemodPackage {
+    const existing = this.find(identity, summary);
     if (existing) return existing;
 
     const id = codemodId(identity);
@@ -47,27 +44,12 @@ export class CodemodRegistry {
       renameSync(stagingDirectory, directory);
     } catch (error) {
       rmSync(stagingDirectory, { recursive: true, force: true });
-      if (existsSync(directory)) return this.load(directory, id, identity);
+      if (existsSync(directory)) return { id, directory, manifest: { ...identity, summary } };
       throw error;
     }
 
-    return { id, directory, manifest };
+    return { id, directory, manifest: { ...identity, summary } };
   }
-
-  private load(directory: string, id: string, expectedIdentity: CodemodIdentity): CodemodPackage {
-    const manifest = validateCodemodPackage(directory, expectedIdentity);
-    return { id, directory, manifest };
-  }
-}
-
-export function validateCodemodPackage(
-  directory: string,
-  expectedIdentity?: CodemodIdentity,
-): CodemodPackageManifest {
-  const manifest = readManifest(directory);
-  if (expectedIdentity) validateIdentity(manifest, expectedIdentity);
-  validatePackageFiles(directory, manifest);
-  return manifest;
 }
 
 export function codemodId(identity: CodemodIdentity): string {
@@ -81,67 +63,4 @@ export function codemodId(identity: CodemodIdentity): string {
       ]),
     )
     .digest("hex");
-}
-
-function readManifest(directory: string): CodemodPackageManifest {
-  let value: unknown;
-  try {
-    value = JSON.parse(readFileSync(join(directory, MANIFEST_FILE), "utf8"));
-  } catch (error) {
-    throw new Error(`Invalid ${MANIFEST_FILE} in ${directory}`, { cause: error });
-  }
-
-  if (!isManifest(value)) {
-    throw new Error(`Invalid ${MANIFEST_FILE} in ${directory}`);
-  }
-  return value;
-}
-
-function isManifest(value: unknown): value is CodemodPackageManifest {
-  if (!value || typeof value !== "object") return false;
-  const manifest = value as Record<string, unknown>;
-  return (
-    manifest.schemaVersion === 1 &&
-    nonEmptyString(manifest.datasource) &&
-    nonEmptyString(manifest.packageName) &&
-    nonEmptyString(manifest.fromVersion) &&
-    nonEmptyString(manifest.toVersion) &&
-    nonEmptyString(manifest.summary) &&
-    manifest.runtime === "node" &&
-    manifest.entrypoint === "transform.mjs" &&
-    manifest.testEntrypoint === "transform.test.mjs"
-  );
-}
-
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function validatePackageFiles(directory: string, manifest: CodemodPackageManifest): void {
-  for (const path of [manifest.entrypoint, manifest.testEntrypoint]) {
-    const stat = lstatSync(join(directory, path), { throwIfNoEntry: false });
-    if (!stat?.isFile()) {
-      throw new Error(`Codemod package file does not exist: ${path}`);
-    }
-  }
-}
-
-function identityFrom(manifest: CodemodPackageManifest): CodemodIdentity {
-  return {
-    datasource: manifest.datasource,
-    packageName: manifest.packageName,
-    fromVersion: manifest.fromVersion,
-    toVersion: manifest.toVersion,
-  };
-}
-
-function validateIdentity(actual: CodemodIdentity, expected: CodemodIdentity): void {
-  if (
-    actual.datasource !== expected.datasource ||
-    actual.packageName !== expected.packageName ||
-    actual.fromVersion !== expected.fromVersion ||
-    actual.toVersion !== expected.toVersion
-  ) {
-    throw new Error("Stored codemod manifest does not match its registry identity");
-  }
 }

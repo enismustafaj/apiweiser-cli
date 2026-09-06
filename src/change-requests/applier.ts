@@ -1,6 +1,5 @@
 import { statSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { repositoryRelativePath } from "./paths.ts";
+import { resolve } from "node:path";
 import { runProcess } from "./process.ts";
 import type { ProcessRunner } from "./process.ts";
 import type { CodemodApplicationInput, CodemodPackage, CommandResult } from "./types.ts";
@@ -17,40 +16,28 @@ export class CodemodApplier {
     if (!statSync(repoPath, { throwIfNoEntry: false })?.isDirectory()) {
       throw new Error(`Repository directory does not exist: ${repoPath}`);
     }
-    assertIdentity(codemod, input);
 
-    const request = {
-      ...input,
-      repoPath,
-      packageFile: repositoryRelativePath(repoPath, input.packageFile),
-      callSites: input.callSites.map((callSite) => ({
-        ...callSite,
-        file: repositoryRelativePath(repoPath, callSite.file),
-      })),
-    };
-    const entrypoint = join(codemod.directory, codemod.manifest.entrypoint);
     const result = await this.run(
-      process.execPath,
-      [entrypoint],
+      "npx",
+      [
+        "--yes",
+        "codemod",
+        "workflow",
+        "run",
+        "--workflow",
+        codemod.directory,
+        "--target",
+        repoPath,
+        "--no-interactive",
+        "--allow-fs",
+        "--allow-child-process",
+      ],
       repoPath,
-      JSON.stringify(request),
     );
 
     if (result.exitCode !== 0) {
       throw new Error(`Codemod failed with exit code ${result.exitCode}: ${result.stderr.trim()}`);
     }
     return result;
-  }
-}
-
-function assertIdentity(codemod: CodemodPackage, input: CodemodApplicationInput): void {
-  const manifest = codemod.manifest;
-  if (
-    manifest.datasource !== input.datasource ||
-    manifest.packageName !== input.packageName ||
-    manifest.fromVersion !== input.fromVersion ||
-    manifest.toVersion !== input.toVersion
-  ) {
-    throw new Error("Codemod package does not match the requested upgrade");
   }
 }

@@ -8,6 +8,7 @@ import { CodemodRegistry } from "../../src/change-requests/registry.ts";
 import type { CodemodAgent, CodemodGenerationInput } from "../../src/change-requests/types.ts";
 
 const temporaryDirectories: string[] = [];
+const noop = async () => {};
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -15,23 +16,30 @@ afterEach(() => {
   }
 });
 
-test("generates, tests, and stores a package that is not in the registry", async () => {
+test("generates, validates, tests, and stores a package that is not in the registry", async () => {
   const registry = new CodemodRegistry(temporaryDirectory());
   const agent = new FakeAgent();
-  const generator = new CodemodGenerator(agent, registry);
+  const generator = new CodemodGenerator(agent, registry, noop, noop);
 
   const result = await generator.resolve(input());
 
   assert.equal(result.reused, false);
   assert.equal(agent.calls, 1);
-  assert.equal(result.codemod.manifest.packageName, "openai");
-  assert.deepEqual(registry.find(input()), result.codemod);
+  // Only the four identity fields plus summary - not the extra fields
+  // (changelog, packageFile, callSites) that also live on `input`.
+  assert.deepEqual(result.codemod.manifest, {
+    datasource: "npm",
+    packageName: "openai",
+    fromVersion: "4.0.0",
+    toVersion: "5.0.0",
+    summary: input().changelog,
+  });
 });
 
-test("reuses a stored package without invoking the agent or tests", async () => {
+test("reuses a stored package without invoking the agent, validator, or tests", async () => {
   const registry = new CodemodRegistry(temporaryDirectory());
   const agent = new FakeAgent();
-  const generator = new CodemodGenerator(agent, registry, async () => {});
+  const generator = new CodemodGenerator(agent, registry, noop, noop);
   const first = await generator.resolve(input());
 
   const second = await generator.resolve(input());
@@ -42,55 +50,37 @@ test("reuses a stored package without invoking the agent or tests", async () => 
   assert.equal(second.codemod.directory, first.codemod.directory);
 });
 
+test("does not store a generated package that fails validation", async () => {
+  const registry = new CodemodRegistry(temporaryDirectory());
+  const generator = new CodemodGenerator(
+    new FakeAgent(),
+    registry,
+    async () => {
+      throw new Error("package is not ready");
+    },
+    noop,
+  );
+
+  await assert.rejects(generator.resolve(input()), /package is not ready/);
+  assert.equal(registry.find(input(), input().changelog), null);
+});
+
 test("does not store a generated package when its test fails", async () => {
   const registry = new CodemodRegistry(temporaryDirectory());
-  const generator = new CodemodGenerator(new FakeAgent(), registry, async () => {
+  const generator = new CodemodGenerator(new FakeAgent(), registry, noop, async () => {
     throw new Error("generated test failed");
   });
 
   await assert.rejects(generator.resolve(input()), /generated test failed/);
-  assert.equal(registry.find(input()), null);
-});
-
-test("rejects a package generated for a different upgrade", async () => {
-  const registry = new CodemodRegistry(temporaryDirectory());
-  const generator = new CodemodGenerator(
-    new FakeAgent({ toVersion: "6.0.0" }),
-    registry,
-    async () => {},
-  );
-
-  await assert.rejects(generator.resolve(input()), /does not match its registry identity/);
-  assert.equal(registry.find(input()), null);
+  assert.equal(registry.find(input(), input().changelog), null);
 });
 
 class FakeAgent implements CodemodAgent {
   calls = 0;
-  private readonly manifestOverrides: Record<string, unknown>;
 
-  constructor(manifestOverrides: Record<string, unknown> = {}) {
-    this.manifestOverrides = manifestOverrides;
-  }
-
-  async generate(input: CodemodGenerationInput, outputDirectory: string): Promise<void> {
+  async generate(_input: CodemodGenerationInput, outputDirectory: string): Promise<void> {
     this.calls += 1;
-    writeFileSync(
-      join(outputDirectory, "codemod.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        datasource: input.datasource,
-        packageName: input.packageName,
-        fromVersion: input.fromVersion,
-        toVersion: input.toVersion,
-        summary: "Migrate the API",
-        runtime: "node",
-        entrypoint: "transform.mjs",
-        testEntrypoint: "transform.test.mjs",
-        ...this.manifestOverrides,
-      }),
-    );
-    writeFileSync(join(outputDirectory, "transform.mjs"), "// transform");
-    writeFileSync(join(outputDirectory, "transform.test.mjs"), "// test");
+    writeFileSync(join(outputDirectory, "workflow.yaml"), "# a real agent's codemod package");
   }
 }
 

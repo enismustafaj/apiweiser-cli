@@ -2,14 +2,16 @@
 
 import { createTask } from "node-cron";
 import type { ScheduledTask } from "node-cron";
+import type { ChangeRequestsModule } from "../change-requests/index.ts";
 import { SuggestionsModule } from "./index.ts";
 
 export class Scheduler {
-  private readonly suggestions = new SuggestionsModule();
+  private readonly suggestions: SuggestionsModule;
   private readonly repoPath: string;
   private readonly task: ScheduledTask;
 
-  constructor(repoPath: string, cronExpression: string) {
+  constructor(repoPath: string, cronExpression: string, changeRequests?: ChangeRequestsModule) {
+    this.suggestions = new SuggestionsModule(changeRequests);
     this.repoPath = repoPath;
     this.task = createTask(cronExpression, () => this.run());
   }

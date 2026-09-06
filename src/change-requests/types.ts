@@ -7,12 +7,13 @@ export interface CodemodIdentity {
   toVersion: string;
 }
 
+// Not read from a file the agent wrote - the registry only ever looks this
+// up by an identity the caller already has, so it's synthesized from that
+// identity rather than parsed out of an agent-authored manifest (see
+// registry.ts and generator.ts). `summary` is just the changelog text that
+// produced (or reused) this codemod.
 export interface CodemodPackageManifest extends CodemodIdentity {
-  schemaVersion: 1;
   summary: string;
-  runtime: "node";
-  entrypoint: string;
-  testEntrypoint: string;
 }
 
 export interface CodemodPackage {
@@ -31,10 +32,8 @@ export interface CodemodAgent {
   generate(input: CodemodGenerationInput, outputDirectory: string): Promise<void>;
 }
 
-export interface CodemodApplicationInput extends CodemodIdentity {
+export interface CodemodApplicationInput {
   repoPath: string;
-  packageFile: string;
-  callSites: CallSite[];
 }
 
 export interface VerificationCommand {

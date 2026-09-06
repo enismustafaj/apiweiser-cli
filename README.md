@@ -37,6 +37,24 @@ an error asking you to fill it in:
 self-hosted/proxy endpoint works too (an OpenAI-compatible Groq endpoint
 was used during testing). See [`docs/config.md`](docs/config.md).
 
+`--suggestions-cron` (see below) can additionally turn breaking updates
+into change requests — generated, tested codemods — but only if you add a
+`codemodAgent` to the same config file, naming whichever coding agent CLI
+you have installed:
+
+```json
+{
+  "codemodAgent": {
+    "command": "npx",
+    "args": ["--yes", "@anthropic-ai/claude-code", "-p", "--dangerously-skip-permissions"]
+  }
+}
+```
+
+Without it, `--suggestions-cron` still records every proposed update, it
+just won't raise change requests for the breaking ones. See
+[`docs/change-requests.md`](docs/change-requests.md).
+
 ## Usage
 
 ```sh
@@ -115,7 +133,7 @@ Each module has its own doc:
   lookup queue, and the daily release-analysis/breaking-change classifier
 - [`docs/suggestions.md`](docs/suggestions.md) — the Renovate-backed
   version-suggestion module and its cron scheduler
-- [`docs/change-requests.md`](docs/change-requests.md) — scaffolding for
-  turning a breaking update into a change request (not implemented yet)
+- [`docs/change-requests.md`](docs/change-requests.md) — turning a breaking
+  update into a generated, tested, and applied codemod
 - [`docs/config.md`](docs/config.md) — the CLI's config file (only needed
   for `--release-analysis-cron`)

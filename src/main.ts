@@ -1,4 +1,6 @@
 import { Command } from "commander";
+import { ChangeRequestsModule } from "./change-requests/index.ts";
+import { LocalCodemodAgent } from "./change-requests/local-agent.ts";
 import { ConfigLoader } from "./config/config-loader.ts";
 import { Scheduler as DataSourcesScheduler } from "./data-sources/changelog-lookup-scheduler.ts";
 import { Scheduler as ReleaseAnalysisScheduler } from "./data-sources/release-analysis-scheduler.ts";
@@ -30,7 +32,11 @@ if (opts.path) {
   await dependencies.scan(opts.path);
 
   if (opts.suggestionsCron) {
-    const scheduler = new SuggestionsScheduler(opts.path, opts.suggestionsCron);
+    const codemodAgentConfig = new ConfigLoader().loadCodemodAgentConfig();
+    const changeRequests = codemodAgentConfig
+      ? new ChangeRequestsModule({ agent: new LocalCodemodAgent(codemodAgentConfig) })
+      : undefined;
+    const scheduler = new SuggestionsScheduler(opts.path, opts.suggestionsCron, changeRequests);
     scheduler.start();
   }
 }

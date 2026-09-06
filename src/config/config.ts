@@ -4,6 +4,12 @@ export interface LlmConfig {
   model: string;
 }
 
+export interface CodemodAgentConfig {
+  command: string;
+  args?: string[];
+}
+
 export interface AppConfig {
   llm: LlmConfig;
+  codemodAgent?: CodemodAgentConfig;
 }

@@ -77,15 +77,7 @@ test("generates or reuses, applies, then verifies a change request", async () =>
     changelog: "Responses API replaces chat completions",
     callSites: [{ ...input(repoPath).callSites[0], file: "src/chat.ts" }],
   });
-  assert.deepEqual(applicationInput, {
-    datasource: "npm",
-    packageName: "openai",
-    fromVersion: "4.0.0",
-    toVersion: "5.0.0",
-    repoPath,
-    packageFile: "package.json",
-    callSites: [{ ...input(repoPath).callSites[0], file: "src/chat.ts" }],
-  });
+  assert.deepEqual(applicationInput, { repoPath });
 });
 
 function input(repoPath: string): ChangeRequestInput {
@@ -115,15 +107,11 @@ function codemodPackage(directory: string): CodemodPackage {
     id: "codemod-id",
     directory,
     manifest: {
-      schemaVersion: 1,
       datasource: "npm",
       packageName: "openai",
       fromVersion: "4.0.0",
       toVersion: "5.0.0",
       summary: "Migrate API",
-      runtime: "node",
-      entrypoint: "transform.mjs",
-      testEntrypoint: "transform.test.mjs",
     },
   };
 }

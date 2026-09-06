@@ -115,15 +115,18 @@ only run queries against `db.connection`.
 
 ## `SuggestionsModule`
 
-Thin orchestrator, same shape as `DependenciesModule`:
+Thin orchestrator, same shape as `DependenciesModule`, plus an optional
+`ChangeRequestsModule` (see below):
 
 ```ts
+constructor(changeRequests?: ChangeRequestsModule) { ... }
+
 async generate(repoPath: string): Promise<RenovateUpdate[]> {
   const updates = await this.renovateTool.run(repoPath);
   this.suggestionsRepository.insert(updates);
 
   for (const update of updates) {
-    this.raiseChangeRequestIfBreaking(update);
+    await this.raiseChangeRequestIfBreaking(repoPath, update);
   }
 
   return updates;
@@ -143,13 +146,19 @@ no `data_sources` entry at all) means nothing happens — silently, since an
 update simply not yet analyzed isn't an error.
 
 If a match says `isBreaking`, raises a change request via
-`ChangeRequestsModule.create` (see [`docs/change-requests.md`](./change-requests.md)),
-attaching the package's current call sites
-(`CallSitesRepository.findForDependency`) so whoever handles the change
-request can see what actually calls the package. `create()` is not
-implemented yet — the call is wrapped in try/catch and logs on failure,
-same resilience pattern as everywhere else, so this doesn't crash
-`generate()` for real matches until change-requests lands.
+`ChangeRequestsModule.create` (see
+[`docs/change-requests.md`](./change-requests.md)), passing the match's
+`summary` as the changelog and attaching the package's current call sites
+(`CallSitesRepository.findForDependency`) so the generated codemod can see
+what actually calls the package. The call is wrapped in try/catch and logs
+on failure, same resilience pattern as everywhere else, so one package's
+codemod failing doesn't stop the rest of `generate()`.
+
+**This is opt-in.** `changeRequests` is only set when `main.ts` finds a
+`codemodAgent` configured (see [`docs/config.md`](./config.md)) — without
+it, `SuggestionsModule` just records suggestions as before and skips this
+step entirely. Generating codemods needs a coding agent CLI on the
+machine; scanning for updates doesn't.
 
 ## `Scheduler`
 

@@ -42,3 +42,27 @@ test("load returns the parsed config when it's complete", () => {
 
   assert.deepEqual(result, config);
 });
+
+test("loadCodemodAgentConfig returns undefined when the config file doesn't exist", () => {
+  const configPath = tempConfigPath();
+
+  assert.equal(new ConfigLoader().loadCodemodAgentConfig(configPath), undefined);
+});
+
+test("loadCodemodAgentConfig returns undefined when codemodAgent isn't configured", () => {
+  const configPath = tempConfigPath();
+  writeFileSync(configPath, JSON.stringify({ llm: { apiKey: "sk-test", url: "u", model: "m" } }));
+
+  assert.equal(new ConfigLoader().loadCodemodAgentConfig(configPath), undefined);
+});
+
+test("loadCodemodAgentConfig returns the configured agent command", () => {
+  const configPath = tempConfigPath();
+  const codemodAgent = { command: "codex", args: ["exec"] };
+  writeFileSync(
+    configPath,
+    JSON.stringify({ llm: { apiKey: "sk-test", url: "u", model: "m" }, codemodAgent }),
+  );
+
+  assert.deepEqual(new ConfigLoader().loadCodemodAgentConfig(configPath), codemodAgent);
+});

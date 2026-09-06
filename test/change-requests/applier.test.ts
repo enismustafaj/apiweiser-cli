@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { CodemodApplier } from "../../src/change-requests/applier.ts";
-import type { CodemodApplicationInput, CodemodPackage } from "../../src/change-requests/types.ts";
+import type { CodemodPackage } from "../../src/change-requests/types.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -14,40 +14,47 @@ afterEach(() => {
   }
 });
 
-test("runs a matching codemod with repository-relative paths", async () => {
+test("runs the codemod's workflow against the target repository", async () => {
   const repoPath = temporaryDirectory();
   const codemod = codemodPackage(temporaryDirectory());
   let invocation: unknown;
-  const applier = new CodemodApplier(async (command, args, cwd, stdin) => {
-    invocation = { command, args, cwd, request: JSON.parse(stdin ?? "") };
+  const applier = new CodemodApplier(async (command, args, cwd) => {
+    invocation = { command, args, cwd };
     return { command, args, exitCode: 0, stdout: "changed 1 file", stderr: "" };
   });
 
-  const result = await applier.apply(codemod, applicationInput(repoPath));
+  const result = await applier.apply(codemod, { repoPath });
 
   assert.equal(result.stdout, "changed 1 file");
   assert.deepEqual(invocation, {
-    command: process.execPath,
-    args: [join(codemod.directory, "transform.mjs")],
-    cwd: repoPath,
-    request: {
-      ...applicationInput(repoPath),
+    command: "npx",
+    args: [
+      "--yes",
+      "codemod",
+      "workflow",
+      "run",
+      "--workflow",
+      codemod.directory,
+      "--target",
       repoPath,
-      packageFile: "package.json",
-      callSites: [{ ...applicationInput(repoPath).callSites[0], file: "src/chat.ts" }],
-    },
+      "--no-interactive",
+      "--allow-fs",
+      "--allow-child-process",
+    ],
+    cwd: repoPath,
   });
 });
 
-test("rejects call-site paths outside the target repository", async () => {
-  const repoPath = temporaryDirectory();
-  const input = applicationInput(repoPath);
-  input.callSites[0] = { ...input.callSites[0], file: join(repoPath, "../secret.ts") };
+test("rejects a repository directory that does not exist", async () => {
+  const codemod = codemodPackage(temporaryDirectory());
   const applier = new CodemodApplier(async () => {
     throw new Error("should not run");
   });
 
-  await assert.rejects(applier.apply(codemodPackage(temporaryDirectory()), input), /outside/);
+  await assert.rejects(
+    applier.apply(codemod, { repoPath: join(temporaryDirectory(), "missing") }),
+    /does not exist/,
+  );
 });
 
 test("surfaces a failed codemod process", async () => {
@@ -61,7 +68,7 @@ test("surfaces a failed codemod process", async () => {
   }));
 
   await assert.rejects(
-    applier.apply(codemodPackage(temporaryDirectory()), applicationInput(repoPath)),
+    applier.apply(codemodPackage(temporaryDirectory()), { repoPath }),
     /ambiguous usage/,
   );
 });
@@ -71,36 +78,12 @@ function codemodPackage(directory: string): CodemodPackage {
     id: "codemod-id",
     directory,
     manifest: {
-      schemaVersion: 1,
       datasource: "npm",
       packageName: "openai",
       fromVersion: "4.0.0",
       toVersion: "5.0.0",
       summary: "Migrate API",
-      runtime: "node",
-      entrypoint: "transform.mjs",
-      testEntrypoint: "transform.test.mjs",
     },
-  };
-}
-
-function applicationInput(repoPath: string): CodemodApplicationInput {
-  return {
-    repoPath,
-    datasource: "npm",
-    packageName: "openai",
-    fromVersion: "4.0.0",
-    toVersion: "5.0.0",
-    packageFile: join(repoPath, "package.json"),
-    callSites: [
-      {
-        dependency: "openai",
-        file: join(repoPath, "src/chat.ts"),
-        line: 12,
-        snippet: "client.chat.completions.create({})",
-        apiSurface: "chat.completions.create",
-      },
-    ],
   };
 }
 
