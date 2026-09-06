@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "codemod": {
+      "command": "/Users/enismustafaj/.npm/_npx/e5ba0e221a5bc5b4/node_modules/@codemod.com/cli-darwin-arm64/codemod",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

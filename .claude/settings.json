@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/enismustafaj/Documents/github/apiweiser-scanner/.claude/codemod/periodic-update/check-updates.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

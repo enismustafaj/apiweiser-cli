@@ -18,10 +18,10 @@ Everything is persisted to a local sqlite db.
 npm install
 ```
 
-No config file needed for scanning or changelog-source lookups. Only
-`--release-analysis-cron` (see below) needs an LLM — the first time it's
-used, it creates `~/.apiweiser-cli/config.json` for you and exits with
-an error asking you to fill it in:
+No config file needed for scanning or changelog-source lookups.
+`--release-analysis-cron` and `--suggestions-cron` (see below) need it — the
+first time either is used, it creates `~/.apiweiser-cli/config.json` for
+you and exits with an error asking you to fill it in:
 
 ```json
 {
@@ -29,13 +29,34 @@ an error asking you to fill it in:
     "apiKey": "sk-...",
     "url": "https://api.openai.com/v1",
     "model": "gpt-5"
+  },
+  "codingAgent": {
+    "command": "claude",
+    "args": ["-p"]
+  },
+  "github": {
+    "token": "ghp_..."
   }
 }
 ```
 
-`url` is passed straight through as the OpenAI SDK's `baseURL`, so a
+`llm.url` is passed straight through as the OpenAI SDK's `baseURL`, so a
 self-hosted/proxy endpoint works too (an OpenAI-compatible Groq endpoint
-was used during testing). See [`docs/config.md`](docs/config.md).
+was used during testing). `codingAgent` is which coding agent CLI raises
+change requests for breaking updates (see
+[`docs/change-requests.md`](docs/change-requests.md)) — also run this once,
+so that agent actually knows how to build a codemod package:
+
+```sh
+npx codemod ai --harness claude --project --no-interactive
+```
+
+`github.token` (a PAT with repo/PR write access) is what
+[`docs/github.md`](docs/github.md) uses both to push the branch and to
+open the PR once a codemod's built and tested — no separate `git` push
+credentials needed for that repo.
+
+See [`docs/config.md`](docs/config.md).
 
 ## Usage
 
@@ -55,7 +76,9 @@ node src/main.ts --path <path-to-repo> --suggestions-cron "<cron expression>"
 ```
 
 Also starts a Renovate-backed scheduler that periodically checks for
-version update suggestions. The process keeps running instead of exiting
+version update suggestions, raising a change request (see below) for any
+whose new version was already classified as breaking. Needs a filled-in
+config (see Setup above). The process keeps running instead of exiting
 after the scan.
 
 ```sh
@@ -115,7 +138,9 @@ Each module has its own doc:
   lookup queue, and the daily release-analysis/breaking-change classifier
 - [`docs/suggestions.md`](docs/suggestions.md) — the Renovate-backed
   version-suggestion module and its cron scheduler
-- [`docs/change-requests.md`](docs/change-requests.md) — scaffolding for
-  turning a breaking update into a change request (not implemented yet)
-- [`docs/config.md`](docs/config.md) — the CLI's config file (only needed
-  for `--release-analysis-cron`)
+- [`docs/change-requests.md`](docs/change-requests.md) — asking a coding
+  agent to build and test a codemod for a breaking update, "the codemod way"
+- [`docs/github.md`](docs/github.md) — applying a generated codemod to the
+  monitored repo for real and opening a PR for it
+- [`docs/config.md`](docs/config.md) — the CLI's config file (needed for
+  `--release-analysis-cron` and `--suggestions-cron`)

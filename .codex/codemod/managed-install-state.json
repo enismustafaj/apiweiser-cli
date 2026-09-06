@@ -1,0 +1,42 @@
+{
+  "schema_version": "1",
+  "harness": "codex",
+  "scope": "project",
+  "components": [
+    {
+      "id": "discovery-guide:AGENTS.md",
+      "kind": "discovery_guide",
+      "path": "/Users/enismustafaj/Documents/github/apiweiser-scanner/AGENTS.md",
+      "version": null,
+      "fingerprint": "d3c1c4b6e02b43a3ea5373beed6cffd68b4dacafe63bcc6b2a3da9e961f76b50"
+    },
+    {
+      "id": "periodic-trigger:check-updates.sh",
+      "kind": "discovery_guide",
+      "path": "/Users/enismustafaj/Documents/github/apiweiser-scanner/.codex/codemod/periodic-update/check-updates.sh",
+      "version": null,
+      "fingerprint": "e81f6caada78bf6befc248470fd0c9c4a1905acbce11d806d53987a6d83db247"
+    },
+    {
+      "id": "periodic-trigger:config.toml",
+      "kind": "discovery_guide",
+      "path": "/Users/enismustafaj/Documents/github/apiweiser-scanner/.codex/config.toml",
+      "version": null,
+      "fingerprint": "7f684309adef83d43c5c32fdec557c2ba7e8e9499405fd8ad88cec8521093857"
+    },
+    {
+      "id": "codemod-mcp",
+      "kind": "mcp_config",
+      "path": "/Users/enismustafaj/Documents/github/apiweiser-scanner/.codex/config.toml",
+      "version": null,
+      "fingerprint": "7f684309adef83d43c5c32fdec557c2ba7e8e9499405fd8ad88cec8521093857"
+    },
+    {
+      "id": "codemod",
+      "kind": "skill",
+      "path": "/Users/enismustafaj/Documents/github/apiweiser-scanner/.agents/skills/codemod/SKILL.md",
+      "version": "1.1.0",
+      "fingerprint": "b4062d5a201d28bbb1b6b6157354d05400114070740f0d381b7541cea97ae9ed"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+# Managed by `npx codemod ai` (see docs/change-requests.md) - its own
+# update mechanism owns these files, not our formatting pipeline.
+.claude/
+.codex/
+.agents/
+.mcp.json
+CLAUDE.md
+AGENTS.md
