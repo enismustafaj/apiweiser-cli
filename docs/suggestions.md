@@ -176,12 +176,10 @@ whatever) doesn't kill the whole schedule.
 
 ## CLI
 
-```
-node src/main.ts --path <repo> --suggestions-cron "<cron expression>"
-```
-
-`--path` always runs `DependenciesModule.scan` once. `--suggestions-cron` is
-optional; when given, it additionally loads config (needs `codingAgent`
-filled in, see [`docs/config.md`](./config.md)) and starts the `Scheduler`
-— the process then keeps running, ticking on schedule, instead of exiting
-after the one-off scan.
+Not behind a flag - `main.ts` always constructs and starts this
+`Scheduler` too, with a fixed once-a-day cron (`"0 0 * * *"`; the class
+itself still takes any expression, see above), last among the three
+schedulers it starts (after the changelog-lookup and release-analysis
+ones - see [`docs/data-sources.md`](./data-sources.md)). `--path` always
+runs `DependenciesModule.scan` once first; `SuggestionsScheduler` is
+constructed with that same `repoPath`.

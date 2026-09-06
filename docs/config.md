@@ -1,8 +1,9 @@
 # Config
 
 `src/config/` — the CLI's own config file, which the user has to fill in
-themselves (an LLM API key, a coding agent command, a GitHub token, at
-minimum) before `--release-analysis-cron` or `--suggestions-cron` will run.
+themselves (an LLM API key, a coding agent command, a GitHub token) before
+running the CLI at all — every invocation always starts the changelog-lookup
+and release-analysis schedulers (see below), so this is never optional.
 
 ```
 src/config/
@@ -57,10 +58,10 @@ configured for that repo.
 
 ## `ConfigLoader.load(configPath?)`
 
-Called at the top of `main.ts`, but only when `--release-analysis-cron` or
-`--suggestions-cron` is passed — `--path` alone and `--data-sources-cron`
-don't need any of this, so they don't load it. A missing or incomplete
-config fails fast, before either scheduler starts.
+Called unconditionally at the top of `main.ts` — every invocation needs it,
+since the changelog-lookup and release-analysis schedulers always start
+(see [`docs/data-sources.md`](./data-sources.md)). A missing or incomplete
+config fails fast, before anything else runs.
 
 - **File missing**: writes the template above (with an empty `apiKey`) to
   `configPath`, then throws, telling the user where to fill it in. The next
@@ -76,12 +77,13 @@ temp path instead so they don't touch the user's actual config.
 
 ## Who uses it
 
-- `main.ts`'s `--release-analysis-cron` handler loads it and passes
-  `config.llm` into `new ReleaseAnalysisScheduler(cronExpression, config.llm)`,
-  which forwards it to `ReleaseAnalysisModule`, which constructs
-  `BreakingChangeClassifierAgent` from it (see
-  [`docs/data-sources.md`](./data-sources.md) § Release analysis).
-- `main.ts`'s `--suggestions-cron` handler loads it and passes
+- `main.ts` always passes `config.llm` into
+  `new ReleaseAnalysisScheduler(DAILY_CRON, config.llm)`, which forwards it
+  to `ReleaseAnalysisModule`, which constructs `BreakingChangeClassifierAgent`
+  from it (see [`docs/data-sources.md`](./data-sources.md) § Release
+  analysis).
+- `main.ts`'s `--suggestions-cron` handler (still opt-in, unlike the two
+  daily schedulers - it also needs `--path`) passes
   `config.codingAgent`/`config.github` into
   `new SuggestionsScheduler(repoPath, cronExpression, config.codingAgent, config.github)`,
   which forwards them to `SuggestionsModule` → `ChangeRequestsModule` →
@@ -89,5 +91,7 @@ temp path instead so they don't touch the user's actual config.
   [`docs/change-requests.md`](./change-requests.md) and
   [`docs/github.md`](./github.md)).
 
-`DataSourcesModule`'s changelog-_source_ lookups (npm-registry-only) are
-the one thing in this CLI that needs none of this.
+`DataSourcesModule`'s changelog-_source_ lookups (npm-registry-only) don't
+need any of this config themselves - but since `main.ts` always starts
+their scheduler too, a valid config is still required just to launch the
+process at all.
