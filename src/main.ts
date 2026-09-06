@@ -30,7 +30,13 @@ if (opts.path) {
   await dependencies.scan(opts.path);
 
   if (opts.suggestionsCron) {
-    const scheduler = new SuggestionsScheduler(opts.path, opts.suggestionsCron);
+    const config = new ConfigLoader().load();
+    const scheduler = new SuggestionsScheduler(
+      opts.path,
+      opts.suggestionsCron,
+      config.codingAgent,
+      config.github,
+    );
     scheduler.start();
   }
 }

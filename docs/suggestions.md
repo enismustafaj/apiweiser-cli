@@ -9,8 +9,8 @@ src/suggestions/
   tool/renovate-report.ts       raw shape of Renovate's own JSON report
   tool/renovate-tool.ts         class RenovateTool  - subprocess to `npx renovate`
   db/suggestions-repository.ts  class SuggestionsRepository(db)
-  index.ts                      class SuggestionsModule - wires the two together
-  suggestions-scheduler.ts      class Scheduler(repoPath, cronExpr)
+  index.ts                      class SuggestionsModule(codingAgentConfig, githubConfig)
+  suggestions-scheduler.ts      class Scheduler(repoPath, cronExpr, codingAgentConfig, githubConfig)
 ```
 
 ## `RenovateTool`
@@ -123,7 +123,7 @@ async generate(repoPath: string): Promise<RenovateUpdate[]> {
   this.suggestionsRepository.insert(updates);
 
   for (const update of updates) {
-    this.raiseChangeRequestIfBreaking(update);
+    await this.raiseChangeRequestIfBreaking(repoPath, update);
   }
 
   return updates;
@@ -144,12 +144,18 @@ update simply not yet analyzed isn't an error.
 
 If a match says `isBreaking`, raises a change request via
 `ChangeRequestsModule.create` (see [`docs/change-requests.md`](./change-requests.md)),
-attaching the package's current call sites
-(`CallSitesRepository.findForDependency`) so whoever handles the change
-request can see what actually calls the package. `create()` is not
-implemented yet — the call is wrapped in try/catch and logs on failure,
-same resilience pattern as everywhere else, so this doesn't crash
-`generate()` for real matches until change-requests lands.
+passing `repoPath` along with the package's current call sites
+(`CallSitesRepository.findForDependency`) — `repoPath` is what
+`GithubModule` (see [`docs/github.md`](./github.md)) applies a successful
+codemod to and opens a PR against. Awaited, one at a time (not
+`Promise.all`'d) — each one spawns a full coding agent session, and running
+several concurrently would be its own rate-limit/cost problem, same
+reasoning as `ReleaseAnalysisModule`'s pacing. Wrapped in try/catch and
+logged on failure, same resilience pattern as everywhere else in this CLI,
+so one failed codemod attempt doesn't crash the rest of `generate()`. Needs
+`codingAgent` and `github` filled in in config (see
+[`docs/config.md`](./config.md)) — `SuggestionsModule`'s constructor takes
+both directly.
 
 ## `Scheduler`
 
@@ -157,7 +163,7 @@ Wraps `node-cron` so `SuggestionsModule.generate` can run on a recurring
 schedule instead of once:
 
 ```ts
-new Scheduler(repoPath, "0 9 * * *"); // e.g. every day at 09:00
+new Scheduler(repoPath, "0 9 * * *", codingAgentConfig, githubConfig); // e.g. every day at 09:00
 scheduler.start();
 scheduler.stop();
 ```
@@ -175,6 +181,7 @@ node src/main.ts --path <repo> --suggestions-cron "<cron expression>"
 ```
 
 `--path` always runs `DependenciesModule.scan` once. `--suggestions-cron` is
-optional; when given, it additionally starts the `Scheduler` — the process
-then keeps running, ticking on schedule, instead of exiting after the
-one-off scan.
+optional; when given, it additionally loads config (needs `codingAgent`
+filled in, see [`docs/config.md`](./config.md)) and starts the `Scheduler`
+— the process then keeps running, ticking on schedule, instead of exiting
+after the one-off scan.

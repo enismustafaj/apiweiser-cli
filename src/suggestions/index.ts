@@ -8,6 +8,7 @@
 
 import { ReleaseAnalysisRepository } from "../data-sources/db/release-analysis-repository.ts";
 import { ChangeRequestsModule } from "../change-requests/index.ts";
+import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
 import { CallSitesRepository } from "../dependencies/db/call-sites-repository.ts";
 import { db } from "../db/singleton.ts";
 import { SuggestionsRepository } from "./db/suggestions-repository.ts";
@@ -19,25 +20,33 @@ export class SuggestionsModule {
   private readonly suggestionsRepository = new SuggestionsRepository(db);
   private readonly releaseAnalysisRepository = new ReleaseAnalysisRepository(db);
   private readonly callSitesRepository = new CallSitesRepository(db);
-  private readonly changeRequests = new ChangeRequestsModule();
+  private readonly changeRequests: ChangeRequestsModule;
+
+  constructor(codingAgentConfig: CodingAgentConfig, githubConfig: GithubConfig) {
+    this.changeRequests = new ChangeRequestsModule(codingAgentConfig, githubConfig);
+  }
 
   async generate(repoPath: string): Promise<RenovateUpdate[]> {
     const updates = await this.renovateTool.run(repoPath);
     this.suggestionsRepository.insert(updates);
 
     for (const update of updates) {
-      this.raiseChangeRequestIfBreaking(update);
+      await this.raiseChangeRequestIfBreaking(repoPath, update);
     }
 
     return updates;
   }
 
-  private raiseChangeRequestIfBreaking(update: RenovateUpdate): void {
+  private async raiseChangeRequestIfBreaking(
+    repoPath: string,
+    update: RenovateUpdate,
+  ): Promise<void> {
     const result = this.releaseAnalysisRepository.findResult(update.dependency, update.newVersion);
     if (!result?.isBreaking) return;
 
     try {
-      this.changeRequests.create({
+      await this.changeRequests.create({
+        repoPath,
         packageName: update.dependency,
         version: update.currentVersion,
         newVersion: update.newVersion,

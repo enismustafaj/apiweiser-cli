@@ -1,0 +1,5 @@
+notify = ["sh", "/Users/enismustafaj/Documents/github/apiweiser-scanner/.codex/codemod/periodic-update/check-updates.sh"]
+[mcp_servers]
+codemod = { command = "/Users/enismustafaj/.npm/_npx/e5ba0e221a5bc5b4/node_modules/@codemod.com/cli-darwin-arm64/codemod", args = ["mcp"] }
+
+

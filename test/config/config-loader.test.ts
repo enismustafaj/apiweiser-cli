@@ -26,16 +26,45 @@ test("load throws and writes a template when the config file doesn't exist", () 
   assert.equal(written.llm.apiKey, "");
 });
 
-test("load throws when the config file is missing required fields", () => {
+test("load throws when the config file is missing required llm fields", () => {
   const configPath = tempConfigPath();
   writeFileSync(configPath, JSON.stringify({ llm: { apiKey: "", url: "", model: "" } }));
 
   assert.throws(() => new ConfigLoader().load(configPath), /missing llm/);
 });
 
+test("load throws when the config file is missing codingAgent.command", () => {
+  const configPath = tempConfigPath();
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    }),
+  );
+
+  assert.throws(() => new ConfigLoader().load(configPath), /missing codingAgent.command/);
+});
+
+test("load throws when the config file is missing github.token", () => {
+  const configPath = tempConfigPath();
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+      codingAgent: { command: "claude", args: ["-p"] },
+    }),
+  );
+
+  assert.throws(() => new ConfigLoader().load(configPath), /missing github.token/);
+});
+
 test("load returns the parsed config when it's complete", () => {
   const configPath = tempConfigPath();
-  const config = { llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" } };
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+  };
   writeFileSync(configPath, JSON.stringify(config));
 
   const result = new ConfigLoader().load(configPath);

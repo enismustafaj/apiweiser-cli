@@ -11,6 +11,13 @@ const TEMPLATE: AppConfig = {
     url: "https://api.openai.com/v1",
     model: "gpt-5",
   },
+  codingAgent: {
+    command: "claude",
+    args: ["-p"],
+  },
+  github: {
+    token: "",
+  },
 };
 
 export class ConfigLoader {
@@ -26,6 +33,12 @@ export class ConfigLoader {
     const config = JSON.parse(readFileSync(configPath, "utf8")) as AppConfig;
     if (!config.llm?.apiKey || !config.llm?.url || !config.llm?.model) {
       throw new Error(`Config at ${configPath} is missing llm.apiKey, llm.url, or llm.model.`);
+    }
+    if (!config.codingAgent?.command) {
+      throw new Error(`Config at ${configPath} is missing codingAgent.command.`);
+    }
+    if (!config.github?.token) {
+      throw new Error(`Config at ${configPath} is missing github.token.`);
     }
     return config;
   }
