@@ -36,11 +36,6 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
-        # --access public: required alongside --provenance on a package's
-        # first publish - npm won't assume public access for a brand-new
-        # package even when it's unscoped (verified against a real failed
-        # run: EUSAGE "Can't generate provenance for new or private
-        # package, you must set `access` to public").
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
