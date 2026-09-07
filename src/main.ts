@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from "commander";
 import { ConfigLoader } from "./config/config-loader.ts";
 import { Scheduler as DataSourcesScheduler } from "./data-sources/changelog-lookup-scheduler.ts";
