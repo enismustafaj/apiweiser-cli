@@ -44,7 +44,23 @@ you point it at.
 ## Install
 
 ```sh
+npm install -g apiweiser-cli
+```
+
+Or run it without installing:
+
+```sh
+npx apiweiser-cli --path <path-to-repo>
+```
+
+Or clone this repo and run it from source (no build step - Node runs the
+`.ts` files directly):
+
+```sh
+git clone https://github.com/enismustafaj/apiweiser-scanner.git
+cd apiweiser-scanner
 npm install
+node src/main.ts --path <path-to-repo>
 ```
 
 ## Configure
@@ -153,6 +169,24 @@ npm test           # node's built-in test runner
 npm run format      # prettier --write
 npm run format:check
 ```
+
+Local dev never needs a build - Node's native TypeScript support runs the
+`src/**/*.ts` files directly.
+
+### Publishing
+
+`npm run build` compiles `src/` to plain `.js` in `dist/` (see
+`tsconfig.build.json`) - `dist/` is what actually gets published, not
+`src/`. This isn't optional for a published package: Node refuses to
+type-strip any `.ts` file located under a `node_modules/` directory (a
+hard restriction, verified directly, not something a flag works around),
+and an installed npm package always lives under one.
+
+To publish: bump `version` in `package.json`, then create a GitHub Release
+with a matching tag (e.g. `v1.2.3`) - publishing the release triggers
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml), which
+runs the tests, builds, and runs `npm publish`. Needs an `NPM_TOKEN` repo
+secret with publish access.
 
 ## How it works
 
