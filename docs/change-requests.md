@@ -34,26 +34,21 @@ Rather than asking an LLM to describe or hand-write the fix once, this asks
 a full coding agent session to build a reusable, tested
 **[codemod](https://codemod.com) package** - a deterministic, AST-based
 transform - and iterate on it until its own tests pass. The agent isn't
-prompted from scratch: this repo has the
-[Codemod CLI](https://docs.codemod.com/cli)'s AI skill and MCP tools
-installed project-locally via
-
-```sh
-npx codemod ai --harness claude --project --no-interactive
-npx codemod ai --harness codex --project --no-interactive
-```
-
-(`--project` writes into this repo - `.claude/`, `.codex/`, `.agents/`,
-`.mcp.json`, `CLAUDE.md`, `AGENTS.md` - rather than the user's global agent
-config; run again with `--harness <other>` to add support for another
-agent, or `codemod ai update` to refresh what's already installed). That
-install is what teaches the agent to, on seeing a `/codemod ...` prompt:
-scaffold a package with `codemod init`, implement the transform with
-AST-selected edits (not regex/string replace), add fixtures, and **loop
-against the package's own tests and `validate_codemod_package` until both
-are green** - see `.claude/commands/codemod.md` for the exact rules it
-follows. That loop happens entirely inside the agent's own session; this
-module does not implement it.
+prompted from scratch: `install.sh` (or a manual
+`npx codemod ai --harness <claude|codex> --user --no-interactive`) installs
+the [Codemod CLI](https://docs.codemod.com/cli)'s AI skill and MCP tools
+**user-scoped** - not `--project`, since a globally-installed CLI has no
+"project" of its own to scope it to, and (verified directly, from a
+throwaway directory with no project config at all) a user-scoped install
+resolves the `/codemod` command regardless of which directory the agent is
+invoked from. That install is what teaches the agent to, on seeing a
+`/codemod ...` prompt: scaffold a package with `codemod init`, implement
+the transform with AST-selected edits (not regex/string replace), add
+fixtures, and **loop against the package's own tests and
+`validate_codemod_package` until both are green** - see
+`~/.claude/commands/codemod.md` for the exact rules it follows. That loop
+happens entirely inside the agent's own session; this module does not
+implement it.
 
 ## `CodemodRegistry`
 
@@ -77,14 +72,12 @@ and waits for it to exit. Which CLI, and the flags that put it into
 non-interactive/headless mode, come from config (see
 [`docs/config.md`](./config.md)) - e.g.:
 
-**`cwd` is this project's own root, not `CodemodRegistry.pathFor(...)`** -
-found the hard way, testing against a real repo: the `/codemod` slash
-command and its MCP config only resolve from a directory that actually has
-`.claude`/`.codex`/`.mcp.json` in it (this repo, via `npx codemod ai
---project`), and a fresh scratch registry directory has none of that -
-running there fails immediately with `Unknown command: /codemod`. The
-prompt tells the agent the separate absolute path to scaffold the package
-at instead.
+`cwd` is `CodemodRegistry.pathFor(...)` directly - the agent scaffolds the
+package in place. (This used to need a workaround: cwd'd at this project's
+own root instead, back when the skill was installed `--project`-scoped,
+since that only resolves from the specific directory it was installed
+into. Installing it `--user`-scoped instead (see § "The codemod way" above)
+resolves that regardless of cwd, so the workaround is gone.)
 
 ```json
 { "codingAgent": { "command": "claude", "args": ["-p"] } }

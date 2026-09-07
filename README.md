@@ -44,7 +44,16 @@ you point it at.
 ## Install
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/enismustafaj/apiweiser-scanner/main/install.sh | sh
+```
+
+Installs the CLI globally _and_ sets up the codemod skill (see
+[Configure](#configure)) for whichever coding agent is on your `PATH` in one
+step. Or do both manually:
+
+```sh
 npm install -g apiweiser-cli
+npx codemod ai --harness claude --user --no-interactive   # swap claude for codex if that's what you use
 ```
 
 Or run it without installing:
@@ -97,15 +106,10 @@ fill it in:
 | `codingAgent.args`    | Flags that put that CLI into non-interactive mode - `["-p"]` for Claude Code, `["exec"]` for Codex |
 | `github.token`        | The PAT from [Prerequisites](#prerequisites) above                                                 |
 
-One more one-time setup step, so your coding agent actually knows how to
-build a codemod package (see
-[`docs/change-requests.md`](docs/change-requests.md)):
-
-```sh
-npx codemod ai --harness claude --project --no-interactive
-```
-
-(swap `claude` for `codex` if that's what you configured).
+`codingAgent` also needs the codemod skill installed for it (see
+[Install](#install) above) - without it, your coding agent won't know how
+to build a codemod package (see
+[`docs/change-requests.md`](docs/change-requests.md)).
 
 ## Usage
 
