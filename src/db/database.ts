@@ -16,12 +16,18 @@ export class Database {
   }
 
   private migrate(): void {
+    // One row per (repo_path, name) - not per name alone. Two repos can
+    // depend on the same package at different versions; a single global
+    // row would have the second scan silently overwrite the first repo's
+    // version (and, via call_sites' package_id FK, its call sites too).
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS packages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
+        repo_path TEXT NOT NULL,
+        name TEXT NOT NULL,
         current_version TEXT NOT NULL,
-        type TEXT NOT NULL
+        type TEXT NOT NULL,
+        UNIQUE(repo_path, name)
       )
     `);
 
@@ -78,6 +84,7 @@ export class Database {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS suggestions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_path TEXT NOT NULL,
         dependency TEXT NOT NULL,
         package_file TEXT NOT NULL,
         dep_type TEXT NOT NULL,

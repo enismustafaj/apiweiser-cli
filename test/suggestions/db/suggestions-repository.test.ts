@@ -5,6 +5,8 @@ import { SuggestionsRepository } from "../../../src/suggestions/db/suggestions-r
 import type { RenovateUpdate } from "../../../src/suggestions/types.ts";
 import { plainRows } from "../../support/plain-rows.ts";
 
+const REPO_A = "/repos/a";
+
 function update(overrides: Partial<RenovateUpdate> = {}): RenovateUpdate {
   return {
     dependency: "commander",
@@ -23,18 +25,21 @@ test("insert stores every field, including a null source_url", () => {
   const db = new Database(":memory:");
   const repo = new SuggestionsRepository(db);
 
-  repo.insert([update(), update({ dependency: "ts-morph", sourceUrl: undefined })]);
+  repo.insert(REPO_A, [update(), update({ dependency: "ts-morph", sourceUrl: undefined })]);
 
   const rows = db.connection
-    .prepare("SELECT dependency, new_version, source_url FROM suggestions ORDER BY dependency")
+    .prepare(
+      "SELECT repo_path, dependency, new_version, source_url FROM suggestions ORDER BY dependency",
+    )
     .all();
   assert.deepEqual(plainRows(rows), [
     {
+      repo_path: REPO_A,
       dependency: "commander",
       new_version: "15.0.0",
       source_url: "https://github.com/tj/commander.js",
     },
-    { dependency: "ts-morph", new_version: "15.0.0", source_url: null },
+    { repo_path: REPO_A, dependency: "ts-morph", new_version: "15.0.0", source_url: null },
   ]);
 });
 
@@ -42,7 +47,7 @@ test("insert is a no-op for an empty list", () => {
   const db = new Database(":memory:");
   const repo = new SuggestionsRepository(db);
 
-  repo.insert([]);
+  repo.insert(REPO_A, []);
 
   const count = db.connection.prepare("SELECT COUNT(*) AS n FROM suggestions").get() as {
     n: number;

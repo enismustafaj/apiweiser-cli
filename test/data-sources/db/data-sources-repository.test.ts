@@ -7,7 +7,7 @@ import { plainRows } from "../../support/plain-rows.ts";
 
 function setup() {
   const db = new Database(":memory:");
-  new PackagesRepository(db).upsert([
+  new PackagesRepository(db).upsert("/repos/a", [
     { name: "commander", currentVersion: "15.0.0", type: "direct" },
   ]);
   const packageId = (

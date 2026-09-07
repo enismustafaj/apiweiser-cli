@@ -1,9 +1,11 @@
-// Local registry of successfully-generated codemod packages, keyed by
-// package name + version pair. A registry "entry" is just a directory - the
-// codemod package CodingAgentService's agent scaffolds (via `codemod init`)
-// lives directly at pathFor(...), no separate copy/import step.
+// Local registry of generated codemod packages, keyed by package name +
+// version pair. A registry "entry" is just a directory - the codemod
+// package CodingAgentService's agent scaffolds (via `codemod init`) lives
+// directly at pathFor(...), no separate copy/import step. Whether an
+// entry already exists (and is reusable as-is) is for the agent itself to
+// judge, not a filesystem check here - see CodingAgentService's prompt.
 
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -24,7 +26,8 @@ export class CodemodRegistry {
 
   // Where CodingAgentService should scaffold/store the codemod package for
   // this exact upgrade. Created on demand - callers can rely on it existing
-  // once this returns.
+  // once this returns. May already be non-empty, if a previous repo hit
+  // this same upgrade.
   pathFor(packageName: string, fromVersion: string, toVersion: string): string {
     const dir = join(
       this.baseDir,
@@ -33,17 +36,5 @@ export class CodemodRegistry {
     );
     mkdirSync(dir, { recursive: true });
     return dir;
-  }
-
-  // Whether a codemod package was already generated (and presumably
-  // succeeded) for this exact upgrade, so callers can skip re-running the
-  // agent for something already solved.
-  has(packageName: string, fromVersion: string, toVersion: string): boolean {
-    const dir = join(
-      this.baseDir,
-      sanitize(packageName),
-      `${sanitize(fromVersion)}_to_${sanitize(toVersion)}`,
-    );
-    return existsSync(join(dir, "codemod.yaml"));
   }
 }

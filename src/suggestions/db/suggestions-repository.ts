@@ -12,14 +12,15 @@ export class SuggestionsRepository {
     this.db = db;
   }
 
-  insert(updates: RenovateUpdate[]): void {
+  insert(repoPath: string, updates: RenovateUpdate[]): void {
     const insert = this.db.connection.prepare(
       `INSERT INTO suggestions
-         (dependency, package_file, dep_type, current_version, new_version, update_type, datasource, source_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (repo_path, dependency, package_file, dep_type, current_version, new_version, update_type, datasource, source_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const update of updates) {
       insert.run(
+        repoPath,
         update.dependency,
         update.packageFile,
         update.depType,

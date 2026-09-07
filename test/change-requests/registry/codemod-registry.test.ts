@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -31,17 +31,11 @@ test("pathFor sanitizes path separators in its arguments", () => {
   assert.match(path, /@scope_pkg/);
 });
 
-test("has is false when no codemod.yaml was ever written", () => {
+test("pathFor returns the same directory on repeat calls, without clearing it", () => {
   const reg = registry();
-  reg.pathFor("commander", "15.0.0", "16.0.0");
+  const first = reg.pathFor("commander", "15.0.0", "16.0.0");
 
-  assert.equal(reg.has("commander", "15.0.0", "16.0.0"), false);
-});
+  const second = reg.pathFor("commander", "15.0.0", "16.0.0");
 
-test("has is true once codemod.yaml exists in that entry's directory", () => {
-  const reg = registry();
-  const path = reg.pathFor("commander", "15.0.0", "16.0.0");
-  writeFileSync(join(path, "codemod.yaml"), "name: commander-15-to-16\n");
-
-  assert.equal(reg.has("commander", "15.0.0", "16.0.0"), true);
+  assert.equal(first, second);
 });

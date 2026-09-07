@@ -8,7 +8,7 @@ import type { Dependency } from "../../../src/dependencies/types.ts";
 function setup() {
   const db = new Database(":memory:");
   const commander: Dependency = { name: "commander", currentVersion: "15.0.0", type: "direct" };
-  new PackagesRepository(db).upsert([commander]);
+  new PackagesRepository(db).upsert("/repos/a", [commander]);
   return { releaseAnalysis: new ReleaseAnalysisRepository(db), db, commander };
 }
 

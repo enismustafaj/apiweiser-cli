@@ -93,12 +93,19 @@ namespace import (\`import * as x from "..."\`), named/destructured import,
 and \`require(...)\`, whichever apply to this package), not just whichever
 one this call site sample happens to use.
 
-Scaffold the package in the current working directory (an empty directory
-already reserved for it: "${codemodPath}") - \`codemod init . --no-interactive\`.
-Use the codemod skill's normal workflow: implement an AST-based transform,
-add fixtures from the call sites above, and iterate until the package's
-own tests and \`validate_codemod_package\` are green. Do not stop until
-they are.
+The current working directory ("${codemodPath}") is this exact upgrade's
+slot in a shared local registry - check first whether a codemod package
+already exists here (e.g. a \`codemod.yaml\`) from a previous repo that hit
+the same upgrade. If one exists, inspect it against the call sites above:
+if it already covers them, verify it still passes and stop there; if it
+doesn't (e.g. it only handles a different import style, or missed part of
+the API surface), extend it rather than starting over. If nothing exists
+yet, scaffold fresh here - \`codemod init . --no-interactive\`.
+
+Either way, use the codemod skill's normal workflow: implement (or extend)
+an AST-based transform, add fixtures from the call sites above, and
+iterate until the package's own tests and \`validate_codemod_package\` are
+green. Do not stop until they are.
 
 When finished, print exactly one line, with nothing else after it, starting
 with "${RESULT_MARKER}" followed by JSON matching

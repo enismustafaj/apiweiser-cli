@@ -20,6 +20,15 @@ export class ChangeRequestsModule {
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
+    // Always asks the agent, even when a codemod already exists at the
+    // registry path for this exact upgrade (see CodingAgentService's
+    // prompt) - a pure existence check can't tell whether the existing
+    // one actually covers this repo's call sites. Found the hard way: the
+    // first chalk codemod, built from one repo's call sites, didn't handle
+    // a second repo's import style at all - blindly reusing it would have
+    // silently produced zero changes there instead of the real fix. The
+    // agent inspects what's already there (if anything) and decides
+    // whether to reuse, extend, or rebuild.
     const result = await this.codingAgentService.generateCodemod(input);
     if (!result.success) {
       console.error(

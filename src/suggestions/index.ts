@@ -6,6 +6,7 @@
 // breaking, raises a change request with the package's current call sites
 // attached, so whoever handles it can see what actually needs updating.
 
+import { resolve } from "node:path";
 import { ReleaseAnalysisRepository } from "../data-sources/db/release-analysis-repository.ts";
 import { ChangeRequestsModule } from "../change-requests/index.ts";
 import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
@@ -27,11 +28,16 @@ export class SuggestionsModule {
   }
 
   async generate(repoPath: string): Promise<RenovateUpdate[]> {
-    const updates = await this.renovateTool.run(repoPath);
-    this.suggestionsRepository.insert(updates);
+    // Canonicalized once, here - same reasoning as DependenciesModule.scan:
+    // packages/call_sites are keyed by this string, so it has to match
+    // whatever DependenciesModule already resolved it to.
+    const absoluteRepoPath = resolve(repoPath);
+
+    const updates = await this.renovateTool.run(absoluteRepoPath);
+    this.suggestionsRepository.insert(absoluteRepoPath, updates);
 
     for (const update of updates) {
-      await this.raiseChangeRequestIfBreaking(repoPath, update);
+      await this.raiseChangeRequestIfBreaking(absoluteRepoPath, update);
     }
 
     return updates;
@@ -50,7 +56,7 @@ export class SuggestionsModule {
         packageName: update.dependency,
         version: update.currentVersion,
         newVersion: update.newVersion,
-        callSites: this.callSitesRepository.findForDependency(update.dependency),
+        callSites: this.callSitesRepository.findForDependency(repoPath, update.dependency),
         isBreaking: result.isBreaking,
         summary: result.summary,
       });

@@ -12,7 +12,7 @@ function setup() {
   const db = new Database(":memory:");
   const commander: Dependency = { name: "commander", currentVersion: "15.0.0", type: "direct" };
   const tsMorph: Dependency = { name: "ts-morph", currentVersion: "28.0.0", type: "direct" };
-  new PackagesRepository(db).upsert([commander, tsMorph]);
+  new PackagesRepository(db).upsert("/repos/a", [commander, tsMorph]);
   return { pending: new PendingChangelogLookupsRepository(db), commander, tsMorph };
 }
 

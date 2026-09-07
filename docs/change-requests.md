@@ -60,8 +60,14 @@ into it, no separate copy/import step.
 
 ```ts
 pathFor(packageName, fromVersion, toVersion): string // creates it if missing
-has(packageName, fromVersion, toVersion): boolean    // true once codemod.yaml exists there
 ```
+
+Whether an entry that already exists is actually reusable as-is isn't a
+question this class answers - there's no `has()`. That decision is left to
+the agent itself (see `CodingAgentService.buildPrompt` below): a pure
+existence check can't tell whether a codemod already sitting there covers
+the current repo's call sites, only whether _some_ codemod was built for
+this exact package + version pair before.
 
 ## `CodingAgentService.generateCodemod(input)`
 
@@ -102,6 +108,18 @@ style to go on. The prompt now explicitly tells the agent to handle every
 common way a package gets imported (default, namespace, named/destructured,
 `require(...)`) rather than just whichever one the sampled call sites show.
 
+**Always asks the agent, even if an entry already exists**: `cwd` may
+already be non-empty (a previous repo hit this exact upgrade). The prompt
+tells the agent to check for that and inspect what's there against the
+current call sites - reuse it as-is if it already covers them, extend it
+if it doesn't, only scaffold from scratch if nothing exists yet. This is
+deliberately not a pre-check in `ChangeRequestsModule` (a plain
+`existsSync` can't tell "some codemod exists" from "a codemod that
+actually covers these call sites exists" - the exact gap the previous
+paragraph's chalk/`ts-loader` case exposed) - always invoking the agent
+costs more per repo, but a codemod that's silently wrong is worse than one
+that takes longer to confirm right.
+
 **Reporting the result**: an agent session's output is a transcript, not
 structured data. The prompt asks the agent to print exactly one line at the
 end, starting with `CODEMOD_RESULT:`, followed by JSON matching
@@ -117,12 +135,16 @@ Called by `SuggestionsModule` (see [`docs/suggestions.md`](./suggestions.md)
 § Raising change requests) whenever a proposed update's new version was
 already classified as breaking.
 
-1. `CodingAgentService.generateCodemod(input)`. If it didn't succeed, logs
-   and returns - the codemod package directory still exists either way (see
-   `CodemodRegistry`), just without a passing transform in it, for a human
-   to pick up. `GithubModule` is never called for a failed attempt.
+1. `CodingAgentService.generateCodemod(input)` - always, whether or not a
+   codemod already exists for this package + version pair (see
+   `CodemodRegistry`/§ "The codemod way" above for why that's the agent's
+   call to make, not a pre-check here). If it didn't succeed, logs and
+   returns - the codemod package directory still exists either way, just
+   without a passing transform in it, for a human to pick up. `GithubModule`
+   is never called for a failed attempt.
 2. On success, `GithubModule.openPullRequestForCodemod(...)` (see
-   [`docs/github.md`](./github.md)) - applies the codemod to `input.repoPath`
-   for real and opens a PR, or logs why it didn't (no changes produced, or
-   `origin` isn't a GitHub remote). Wrapped in try/catch; a PR-creation
-   failure doesn't crash `SuggestionsModule.generate()`.
+   [`docs/github.md`](./github.md)) - applies the codemod to
+   `input.repoPath` for real and opens a PR, or logs why it didn't (no
+   changes produced, or `origin` isn't a GitHub remote). Wrapped in
+   try/catch; a PR-creation failure doesn't crash
+   `SuggestionsModule.generate()`.

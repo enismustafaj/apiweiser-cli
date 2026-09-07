@@ -44,10 +44,20 @@ and letting it recreate; there's no `ALTER TABLE` step.
 
 ### `packages`
 
-Populated by `PackagesRepository`, **one row per distinct package name** —
-this is a dimension/reference table, not an event log. Re-scanning a repo
-`UPSERT`s (`ON CONFLICT(name) DO UPDATE`) rather than inserting new rows, so
-`current_version`/`type` always reflect the most recent scan.
+Populated by `PackagesRepository`, **one row per `(repo_path, name)` pair**
+— not per package name alone. This used to be name-only, a real bug for
+multi-repo use: two repos depending on the same package at different
+versions shared a single global row, so scanning the second repo silently
+overwrote the first repo's version (and, via `call_sites`' FK, orphaned or
+misattributed its call sites too - see below). `repo_path` is always the
+canonicalized, absolute repo path (`node:path`'s `resolve()`), resolved
+once in `DependenciesModule.scan()`/`SuggestionsModule.generate()`, so the
+same repo scanned via a relative path one run and an absolute path the
+next is still recognized as the same repo, not a second one.
+
+Re-scanning the same repo `UPSERT`s (`ON CONFLICT(repo_path, name) DO
+UPDATE`) rather than inserting new rows, so `current_version`/`type`
+always reflect that repo's most recent scan.
 
 `upsert()` uses `... RETURNING id` and writes the result straight onto each
 `Dependency` object's `id` field, in the same statement as the
@@ -57,12 +67,27 @@ already has the (now-mutated) `Dependency` in hand, like
 the id up again by name. `CallSitesRepository` is the exception — see the
 `call_sites` note below.
 
-| column            | type    | notes                                    |
-| ----------------- | ------- | ---------------------------------------- |
-| `id`              | INTEGER | primary key, autoincrement               |
-| `name`            | TEXT    | package name, unique, e.g. `"commander"` |
-| `current_version` | TEXT    | from the SBOM                            |
-| `type`            | TEXT    | `"direct"` or `"transitive"`             |
+| column            | type    | notes                                         |
+| ----------------- | ------- | --------------------------------------------- |
+| `id`              | INTEGER | primary key, autoincrement                    |
+| `repo_path`       | TEXT    | absolute path of the repo this row belongs to |
+| `name`            | TEXT    | package name, e.g. `"commander"`              |
+| `current_version` | TEXT    | from the SBOM                                 |
+| `type`            | TEXT    | `"direct"` or `"transitive"`                  |
+
+`UNIQUE(repo_path, name)` - the same package name can have one row per
+repo, but only one row per repo.
+
+**Deliberately global, not per-repo**: `PackagesRepository.findNew()`
+checks existence by `name` alone, ignoring `repo_path` - "new" means new to
+this CLI globally (across every repo it's ever scanned), not new to one
+repo. A package's changelog source (`data_sources`, below) is a property
+of the package, not of whichever repo happens to depend on it, so a second
+repo introducing an already-known package shouldn't re-trigger that lookup.
+This is also what lets a breaking-release classification or a generated
+codemod (see [`docs/change-requests.md`](./change-requests.md)) found via
+one repo apply to another - those are keyed by package identity, never by
+`repo_path`.
 
 ### `call_sites`
 
@@ -72,10 +97,13 @@ for how `Scanner` finds these). `package_id` is a foreign key into
 `packages` — `DependenciesModule` always upserts packages first, so the
 package a call site belongs to is guaranteed to exist by the time the call
 site is inserted. Unlike `data_sources` below, `CallSitesRepository` still
-resolves `package_id` via a `(SELECT id FROM packages WHERE name = ?)`
-subquery rather than `dependency.id` — `CallSite` only carries the
-dependency's name (from `Scanner`, which doesn't touch the database), not
-the `Dependency` object itself, so there's no `id` on hand to reuse.
+resolves `package_id` via a `(SELECT id FROM packages WHERE repo_path = ?
+AND name = ?)` subquery rather than `dependency.id` — `CallSite` only
+carries the dependency's name (from `Scanner`, which doesn't touch the
+database), not the `Dependency` object itself, so there's no `id` on hand
+to reuse. Every `CallSitesRepository` method takes `repoPath` explicitly,
+for the same reason `packages` does - resolving `package_id` by name alone
+would risk matching a different repo's row for the same package name.
 
 | column        | type    | notes                                                  |
 | ------------- | ------- | ------------------------------------------------------ |
@@ -172,11 +200,14 @@ a separate `major` bump). Unlike `call_sites`, this still stores
 `dependency` as a plain name, not a `packages` foreign key — Renovate can
 propose updates for packages the SBOM scan never saw (e.g. deps in a
 lockfile-only manager), so it isn't guaranteed a matching `packages` row
-exists.
+exists. `repo_path` (same canonicalized, absolute path as `packages`) is
+stored directly rather than resolved through a join, for the same reason -
+there's no guaranteed `packages` row to join through.
 
 | column            | type    | notes                                                         |
 | ----------------- | ------- | ------------------------------------------------------------- |
 | `id`              | INTEGER | primary key, autoincrement                                    |
+| `repo_path`       | TEXT    | absolute path of the repo this suggestion was found in        |
 | `dependency`      | TEXT    | package name                                                  |
 | `package_file`    | TEXT    | which file it came from, e.g. `"package.json"`                |
 | `dep_type`        | TEXT    | e.g. `"dependencies"` vs `"devDependencies"`                  |
