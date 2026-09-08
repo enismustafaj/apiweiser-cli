@@ -150,6 +150,25 @@ whatever repo you point `--path` at.
   branch named `apiweiser-cli/<package>-<version>`), not a fork. Point
   this at a repo you (or your token) actually have write access to.
 
+## Asking about what it found
+
+Everything above runs unattended, which makes "what did it actually do?" a
+real question. The package ships a second binary, `apiweiser-mcp` — a
+read-only MCP server over the same local database — so you can ask the
+coding agent you already have open:
+
+```sh
+claude mcp add apiweiser -- apiweiser-mcp
+```
+
+Then, in that agent: _"which PRs has apiweiser opened?"_, _"why is there no
+PR for chalk?"_, _"what breaking releases did it find this week?"_, _"where
+do we actually call chalk?"_
+
+It reads `~/.apiweiser-cli/db.sqlite` directly and needs no config of its
+own. See [`docs/mcp.md`](docs/mcp.md) for the full tool list and for
+setting it up with other agents.
+
 ## Docker
 
 ```sh
@@ -209,4 +228,6 @@ built:
   agent to build and test a codemod for a breaking update, "the codemod way"
 - [`docs/github.md`](docs/github.md) — applying a generated codemod to the
   monitored repo for real and opening a PR for it
+- [`docs/mcp.md`](docs/mcp.md) — the read-only MCP server for asking your
+  coding agent what the CLI found
 - [`docs/config.md`](docs/config.md) — the CLI's config file in more detail

@@ -148,3 +148,11 @@ already classified as breaking.
    changes produced, or `origin` isn't a GitHub remote). Wrapped in
    try/catch; a PR-creation failure doesn't crash
    `SuggestionsModule.generate()`.
+
+Every one of those outcomes - not just the PRs - is also written to the
+`change_requests` table via `ChangeRequestsRepository`, so the MCP server
+(see [`docs/mcp.md`](./mcp.md)) can answer "which PRs did this open?" and
+"why is there no PR for chalk?" after the process that logged it is long
+gone. The recording itself is best-effort and wrapped in its own try/catch:
+a change request that really did open a PR shouldn't be reported as failed
+because the audit row afterwards couldn't be written.

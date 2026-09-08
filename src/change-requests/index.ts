@@ -7,12 +7,15 @@
 
 import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
 import { CodingAgentService } from "./agent/coding-agent-service.ts";
+import { db } from "../db/singleton.ts";
+import { ChangeRequestsRepository } from "./db/change-requests-repository.ts";
 import { GithubModule } from "../github/index.ts";
-import type { ChangeRequestInput, CodemodResult } from "./types.ts";
+import type { ChangeRequestInput, ChangeRequestRecord, CodemodResult } from "./types.ts";
 
 export class ChangeRequestsModule {
   private readonly codingAgentService: CodingAgentService;
   private readonly github: GithubModule;
+  private readonly changeRequests = new ChangeRequestsRepository(db);
 
   constructor(codingAgentConfig: CodingAgentConfig, githubConfig: GithubConfig) {
     this.codingAgentService = new CodingAgentService(codingAgentConfig);
@@ -34,6 +37,11 @@ export class ChangeRequestsModule {
       console.error(
         `ChangeRequestsModule: codemod generation failed for "${input.packageName}" ${input.version} -> ${input.newVersion}: ${result.reason}`,
       );
+      this.record(input, {
+        status: "codemod_failed",
+        detail: result.reason,
+        codemodPath: result.codemodPath,
+      });
       return result;
     }
 
@@ -49,13 +57,52 @@ export class ChangeRequestsModule {
 
       if (pr.created) {
         console.log(`ChangeRequestsModule: opened PR for "${input.packageName}": ${pr.url}`);
+        this.record(input, {
+          status: "pr_opened",
+          codemodPath: result.codemodPath,
+          prUrl: pr.url,
+        });
       } else {
         console.log(`ChangeRequestsModule: no PR opened for "${input.packageName}": ${pr.reason}`);
+        this.record(input, {
+          status: "skipped",
+          detail: pr.reason,
+          codemodPath: result.codemodPath,
+        });
       }
     } catch (err) {
       console.error(`ChangeRequestsModule: PR creation failed for "${input.packageName}":`, err);
+      this.record(input, {
+        status: "pr_failed",
+        detail: err instanceof Error ? err.message : String(err),
+        codemodPath: result.codemodPath,
+      });
     }
 
     return result;
+  }
+
+  // Recording is best-effort: a change request that actually produced a PR
+  // shouldn't be reported as failed just because writing the audit row
+  // afterwards didn't work.
+  private record(
+    input: ChangeRequestInput,
+    outcome: Pick<ChangeRequestRecord, "status" | "detail" | "codemodPath" | "prUrl">,
+  ): void {
+    try {
+      this.changeRequests.insert({
+        repoPath: input.repoPath,
+        packageName: input.packageName,
+        fromVersion: input.version,
+        toVersion: input.newVersion,
+        summary: input.summary,
+        ...outcome,
+      });
+    } catch (err) {
+      console.error(
+        `ChangeRequestsModule: recording outcome failed for "${input.packageName}":`,
+        err,
+      );
+    }
   }
 }

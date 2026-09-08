@@ -96,6 +96,27 @@ export class Database {
         scanned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // One row per attempt, not per successful PR - "the agent tried and
+    // failed" and "the codemod applied but changed nothing" are both
+    // answers someone asks for later ("why is there no PR for chalk?"),
+    // and both used to exist only as console output on a process that has
+    // since been restarted.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS change_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_path TEXT NOT NULL,
+        package_name TEXT NOT NULL,
+        from_version TEXT NOT NULL,
+        to_version TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT,
+        codemod_path TEXT,
+        pr_url TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
   }
 
   get connection(): DatabaseSync {
