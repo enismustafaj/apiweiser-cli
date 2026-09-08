@@ -218,6 +218,34 @@ there's no guaranteed `packages` row to join through.
 | `source_url`      | TEXT    | nullable - the package's repo/homepage, if Renovate found one |
 | `scanned_at`      | TEXT    | defaults to `CURRENT_TIMESTAMP`                               |
 
+### `change_requests`
+
+Populated by `ChangeRequestsModule` (see
+[`docs/change-requests.md`](./change-requests.md)), one row per migration
+_attempt_ — not per PR. The attempts that produced no PR are the ones
+someone asks about later ("why is there no PR for chalk?"), and before this
+table they existed only as console output on a long-running process. Read
+back by the MCP server (see [`docs/mcp.md`](./mcp.md)).
+
+Stores `package_name` as a plain name rather than a `packages` foreign key,
+for the same reason `suggestions` does: the update that triggered it came
+from Renovate, which can propose updates for packages the SBOM scan never
+recorded.
+
+| column         | type    | notes                                                                      |
+| -------------- | ------- | -------------------------------------------------------------------------- |
+| `id`           | INTEGER | primary key, autoincrement                                                 |
+| `repo_path`    | TEXT    | absolute path of the repo the migration targeted                           |
+| `package_name` | TEXT    | package being migrated                                                     |
+| `from_version` | TEXT    | version before the update                                                  |
+| `to_version`   | TEXT    | version being migrated to                                                  |
+| `summary`      | TEXT    | the changelog summary that justified the migration                         |
+| `status`       | TEXT    | `pr_opened` / `skipped` / `codemod_failed` / `pr_failed` (see docs/mcp.md) |
+| `detail`       | TEXT    | nullable - why, for every status except `pr_opened`                        |
+| `codemod_path` | TEXT    | nullable - the codemod package the attempt produced, if any                |
+| `pr_url`       | TEXT    | nullable - set only when `status` is `pr_opened`                           |
+| `created_at`   | TEXT    | defaults to `CURRENT_TIMESTAMP`                                            |
+
 ## Adding a new table
 
 Add a `this.db.exec(\`CREATE TABLE IF NOT EXISTS ...\`)`call in`Database.migrate()`, then write a repository class next to whichever
