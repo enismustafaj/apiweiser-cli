@@ -1,6 +1,6 @@
 {
   "name": "apiweiser-cli",
-  "version": "0.0.2",
+  "version": "1.0.1",
   "description": "Watches a repo's dependencies, classifies breaking releases via an LLM, and has a coding agent build, test, and open a PR for the migration.",
   "bin": {
     "apiweiser-cli": "dist/main.js"
