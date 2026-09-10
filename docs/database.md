@@ -14,7 +14,7 @@ once, shared by every module.
   `*Repository` class (`PackagesRepository`, `CallSitesRepository`,
   `DataSourcesRepository`, `PendingChangelogLookupsRepository`,
   `ReleaseAnalysisRepository`,
-  `SuggestionsRepository`) that takes a `Database`
+  `SuggestionsRepository`, `PullRequestsRepository`) that takes a `Database`
   injected via constructor and runs its own queries against
   `db.connection`. See [`docs/scanner.md`](./scanner.md),
   [`docs/data-sources.md`](./data-sources.md), and
@@ -217,6 +217,24 @@ there's no guaranteed `packages` row to join through.
 | `datasource`      | TEXT    | e.g. `"npm"`, `"docker"`, `"github-tags"`                     |
 | `source_url`      | TEXT    | nullable - the package's repo/homepage, if Renovate found one |
 | `scanned_at`      | TEXT    | defaults to `CURRENT_TIMESTAMP`                               |
+
+### `pull_requests`
+
+Populated by `PullRequestsRepository`, one row per PR
+`GithubModule.openPullRequestForCodemod` actually opened (see
+[`docs/github.md`](./github.md)) - not per attempt. A run that produced no
+changes or found a non-GitHub remote returns `{ created: false }` without
+ever reaching this table; there's no URL to record.
+
+| column         | type    | notes                                               |
+| -------------- | ------- | --------------------------------------------------- |
+| `id`           | INTEGER | primary key, autoincrement                          |
+| `repo_path`    | TEXT    | absolute path of the repo the PR was opened against |
+| `package_name` | TEXT    | package migrated                                    |
+| `version`      | TEXT    | version before the update                           |
+| `new_version`  | TEXT    | version after the update                            |
+| `url`          | TEXT    | the created PR's `html_url`                         |
+| `opened_at`    | TEXT    | defaults to `CURRENT_TIMESTAMP`                     |
 
 ## Adding a new table
 

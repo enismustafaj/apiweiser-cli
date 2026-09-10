@@ -13,6 +13,7 @@ src/github/
   tool/codemod-applier.ts        class CodemodApplier
   tool/git-tool.ts               class GitTool
   pull-request-service.ts        class PullRequestService(config)
+  db/pull-requests-repository.ts class PullRequestsRepository
   index.ts                       class GithubModule(config)
 ```
 
@@ -120,7 +121,10 @@ the created PR's `html_url`.
    path (see [`docs/change-requests.md`](./change-requests.md) §
    `CodemodRegistry`).
 
-Returns `{ created: true, url }` on success.
+Returns `{ created: true, url }` on success - and, in that same case,
+records the PR via `PullRequestsRepository.insert()` (see
+[`docs/database.md`](./database.md) § `pull_requests`) before returning, so
+every opened PR is queryable afterward without scraping GitHub itself.
 
 ## Who calls this
 

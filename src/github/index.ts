@@ -4,6 +4,8 @@
 // open a PR describing the migration. See docs/github.md.
 
 import type { GithubConfig } from "../config/config.ts";
+import { db } from "../db/singleton.ts";
+import { PullRequestsRepository } from "./db/pull-requests-repository.ts";
 import { CodemodApplier } from "./tool/codemod-applier.ts";
 import { DependencyBumper } from "./tool/dependency-bumper.ts";
 import { GitTool } from "./tool/git-tool.ts";
@@ -15,6 +17,7 @@ export class GithubModule {
   private readonly dependencyBumper = new DependencyBumper();
   private readonly git: GitTool;
   private readonly pullRequests: PullRequestService;
+  private readonly pullRequestsRepository = new PullRequestsRepository(db);
 
   constructor(config: GithubConfig) {
     this.git = new GitTool(config);
@@ -57,6 +60,14 @@ export class GithubModule {
       head: branch,
       base,
       body: this.buildDescription(request),
+    });
+
+    this.pullRequestsRepository.insert({
+      repoPath: request.repoPath,
+      packageName: request.packageName,
+      version: request.version,
+      newVersion: request.newVersion,
+      url,
     });
 
     return { created: true, url };
