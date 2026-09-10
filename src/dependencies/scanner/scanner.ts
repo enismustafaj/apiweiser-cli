@@ -37,11 +37,6 @@ export class Scanner {
     return callSites;
   }
 
-  // Resolves a call/new expression's callee to wherever it was actually
-  // declared. If that's inside a scanned dependency's package in
-  // node_modules, it's a real usage of that dependency's API surface -
-  // however deep the call chain (`.option(...)` on a `Command` instance
-  // counts, even though the instance, not the import, is what's called).
   private resolveUsage(
     call: CallExpression | NewExpression,
     depNames: Set<string>,
@@ -66,23 +61,20 @@ export class Scanner {
     return { dependency, apiSurface };
   }
 
-  // Class/interface name of a node's type, e.g. the `Command` in
-  // `app.option(...)` where `app: Command`. Prefers the type's alias name
-  // (e.g. `type Assert = {...}`) over its own symbol - for a type alias to
-  // an anonymous object literal, the literal's own symbol is TypeScript's
-  // internal placeholder "__type", which is worse than useless as a label.
-  // Falls back to the node's own text if neither is available.
   private typeName(node: Node): string {
     const type = node.getType();
     const name = type.getAliasSymbol()?.getName() ?? type.getSymbol()?.getName();
     return name && name !== "__type" ? name : node.getText();
   }
 
-  // Maps a declaration's file path back to which scanned dependency owns
-  // it, by checking for a `node_modules/<dep>/` path segment.
   private dependencyOf(filePath: string, depNames: Set<string>): string | null {
     for (const name of depNames) {
-      if (filePath.includes(`/node_modules/${name}/`)) return name;
+      if (
+        filePath.includes(`/node_modules/${name}/`) ||
+        filePath.includes(`/node_modules/@types/${name}/`)
+      ) {
+        return name;
+      }
     }
     return null;
   }

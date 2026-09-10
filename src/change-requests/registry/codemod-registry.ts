@@ -12,9 +12,13 @@ import { join } from "node:path";
 const REGISTRY_DIR = join(homedir(), ".apiweiser-cli", "codemods");
 
 // ponytail: strip path separators only - good enough for real npm package
-// names/semver strings, which don't contain them anyway.
+// names, which don't contain them anyway.
 function sanitize(segment: string): string {
   return segment.replace(/[/\\]/g, "_");
+}
+
+function majorVersion(version: string): string {
+  return version.match(/\d+/)?.[0] ?? sanitize(version);
 }
 
 export class CodemodRegistry {
@@ -24,16 +28,15 @@ export class CodemodRegistry {
     this.baseDir = baseDir;
   }
 
-  // Where CodingAgentService should scaffold/store the codemod package for
-  // this exact upgrade. Created on demand - callers can rely on it existing
-  // once this returns. May already be non-empty, if a previous repo hit
-  // this same upgrade.
   pathFor(packageName: string, fromVersion: string, toVersion: string): string {
-    const dir = join(
-      this.baseDir,
-      sanitize(packageName),
-      `${sanitize(fromVersion)}_to_${sanitize(toVersion)}`,
-    );
+    const fromMajor = majorVersion(fromVersion);
+    const toMajor = majorVersion(toVersion);
+    const key =
+      fromMajor === toMajor
+        ? `${sanitize(fromVersion)}_to_${sanitize(toVersion)}`
+        : `${fromMajor}_to_${toMajor}`;
+
+    const dir = join(this.baseDir, sanitize(packageName), key);
     mkdirSync(dir, { recursive: true });
     return dir;
   }

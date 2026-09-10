@@ -53,21 +53,50 @@ implement it.
 ## `CodemodRegistry`
 
 Local registry of generated codemod packages, one directory per
-`(packageName, fromVersion, toVersion)` triple, under
-`~/.apiweiser-cli/codemods/<packageName>/<fromVersion>_to_<toVersion>/`. A
-registry "entry" is just that directory - `codemod init` scaffolds directly
-into it, no separate copy/import step.
+`(packageName, fromVersion, toVersion)` under
+`~/.apiweiser-cli/codemods/<packageName>/<key>/`. A registry "entry" is
+just that directory - `codemod init` scaffolds directly into it, no
+separate copy/import step.
 
 ```ts
 pathFor(packageName, fromVersion, toVersion): string // creates it if missing
 ```
+
+**The key depends on whether the upgrade crosses a major-version boundary**:
+
+- **Crosses a major** (e.g. `4.1.0` → `5.0.0`): keyed by **major version
+  only** - `<packageName>/4_to_5/`. Measured directly: reusing/extending an
+  existing entry costs ~69% less than a from-scratch build (35 turns/$0.79
+  vs 86 turns/$2.52, same real node-fetch v2→v3 migration) - but real repos
+  rarely pin the exact same patch version, so keying by full version made
+  that cheap path rare in practice: a repo on `chalk@4.1.0` and one on
+  `chalk@4.1.2`, both migrating to `5.x`, used to get two separate entries,
+  both built from scratch. Coarsening doesn't risk applying a wrong or
+  incomplete transform across differing patch versions - that risk is
+  already handled below.
+- **Stays within the same major** (e.g. `2.4.5` → `2.7.0`): keyed by the
+  **full, exact version pair** - `<packageName>/2.4.5_to_2.7.0/`. There's
+  no equivalent stable "recipe" to generalize here. A major bump is
+  documented by the package itself as one coherent breaking change
+  regardless of which patch you're coming from; a same-major "breaking"
+  release isn't (that classification comes from an LLM reading changelog
+  prose, not semver convention - see `BreakingChangeClassifierAgent` in
+  [`docs/data-sources.md`](./data-sources.md) § Release analysis, a
+  package can ship a breaking change without a major bump). Two different
+  same-major "breaking" releases could be entirely unrelated fixes -
+  coarsening those together would point the agent at a prior entry that
+  has nothing to do with the current one, not just an incomplete one.
 
 Whether an entry that already exists is actually reusable as-is isn't a
 question this class answers - there's no `has()`. That decision is left to
 the agent itself (see `CodingAgentService.buildPrompt` below): a pure
 existence check can't tell whether a codemod already sitting there covers
 the current repo's call sites, only whether _some_ codemod was built for
-this exact package + version pair before.
+this key before. Proven for real: a node-fetch codemod
+built from one repo's call sites (which never used `.buffer()`) correctly
+got extended - not blindly reused - when a second repo's call sites
+included `response.buffer()`, a real v2 API the first repo never
+exercised.
 
 ## `CodingAgentService.generateCodemod(input)`
 
