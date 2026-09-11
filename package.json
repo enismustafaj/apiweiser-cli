@@ -15,7 +15,7 @@
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && cp -r src/dashboard/static dist/dashboard/static",
     "prepublishOnly": "npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
