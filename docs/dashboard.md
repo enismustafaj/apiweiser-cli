@@ -5,18 +5,6 @@
 are known, what Renovate suggested, and what PRs have actually been opened
 (see [`docs/database.md`](./database.md)).
 
-```
-src/dashboard/
-  types.ts                      Page<T>, PackageRow, SuggestionRow, PullRequestRow, Tab
-  db/dashboard-repository.ts   class DashboardRepository
-  pages.ts                     dashboardPage(packages, suggestions, pullRequests, activeTab)
-  server.ts                    createServer(db): Hono
-  index.ts                     class DashboardModule
-  static/
-    style.css                   Pico.css overrides + the CSS-only tabs/pagination
-    logo.png                     APIWeiser logo, shown in the header
-```
-
 ## Running it
 
 ```
@@ -38,13 +26,10 @@ the CLI has ever scanned (`packages`/`suggestions`/`pull_requests` aren't
 scoped to one repo path from a dashboard's point of view - the whole point
 is seeing everything at once).
 
-```ts
-listPackages(page: number): Page<PackageRow>           // every (repo_path, package) row
-listSuggestions(page: number): Page<SuggestionRow>     // newest scanned first
-listPullRequests(page: number): Page<PullRequestRow>   // newest opened first
-```
-
-`page` is 1-based; `Page<T>` is `{ rows, page, totalPages, total }`. All
+`listPackages(page)`, `listSuggestions(page)`, and `listPullRequests(page)`
+each take a 1-based page number and return a `Page<T>` (every
+`(repo_path, package)` row for packages, newest-scanned-first for
+suggestions, newest-opened-first for pull requests). `page` is 1-based; `Page<T>` is `{ rows, page, totalPages, total }`. All
 three share one `paginate()` private helper (same shape: a plain table, no
 filters, just a different query and a fixed `PAGE_SIZE` of 20) - a `COUNT(*)`
 plus a `LIMIT ? OFFSET ?`, run as two separate queries rather than a single

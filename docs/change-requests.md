@@ -8,14 +8,6 @@ codemod way" (see below), keeps the result in a local registry either way,
 and on success hands it to [`docs/github.md`](./github.md) to actually
 apply it and open a PR.
 
-```
-src/change-requests/
-  types.ts                          ChangeRequestInput, CodemodResult
-  registry/codemod-registry.ts      class CodemodRegistry
-  agent/coding-agent-service.ts     class CodingAgentService(config)
-  index.ts                          class ChangeRequestsModule(codingAgentConfig, githubConfig)
-```
-
 ## `ChangeRequestInput`
 
 | field         | type         | notes                                        |
@@ -56,11 +48,8 @@ Local registry of generated codemod packages, one directory per
 `(packageName, fromVersion, toVersion)` under
 `~/.apiweiser-cli/codemods/<packageName>/<key>/`. A registry "entry" is
 just that directory - `codemod init` scaffolds directly into it, no
-separate copy/import step.
-
-```ts
-pathFor(packageName, fromVersion, toVersion): string // creates it if missing
-```
+separate copy/import step. `pathFor(packageName, fromVersion, toVersion)`
+returns that directory's path, creating it first if it's missing.
 
 **The key depends on whether the upgrade crosses a major-version boundary**:
 
@@ -105,7 +94,10 @@ configured coding agent CLI once, with a prompt built from `input` (package
 name, old/new version, changelog summary, and every call site to migrate),
 and waits for it to exit. Which CLI, and the flags that put it into
 non-interactive/headless mode, come from config (see
-[`docs/config.md`](./config.md)) - e.g.:
+[`docs/config.md`](./config.md)) - e.g. `codingAgent.command: "claude"`
+with `codingAgent.args: ["-p"]` (Codex's headless mode would instead be
+`command: "codex"`, `args: ["exec"]`). `args` are appended before the
+prompt, which is always the final argument.
 
 `cwd` is `CodemodRegistry.pathFor(...)` directly - the agent scaffolds the
 package in place. (This used to need a workaround: cwd'd at this project's
@@ -113,14 +105,6 @@ own root instead, back when the skill was installed `--project`-scoped,
 since that only resolves from the specific directory it was installed
 into. Installing it `--user`-scoped instead (see § "The codemod way" above)
 resolves that regardless of cwd, so the workaround is gone.)
-
-```json
-{ "codingAgent": { "command": "claude", "args": ["-p"] } }
-```
-
-`args` are appended before the prompt, which is always the final argument
-(`codex`'s headless mode would instead be `{ "command": "codex", "args":
-["exec"] }`).
 
 **Generalizing beyond the sample repo**: found the hard way, testing
 against a second real repo - a codemod is built from one repo's call

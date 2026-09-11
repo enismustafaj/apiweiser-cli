@@ -115,13 +115,8 @@ would risk matching a different repo's row for the same package name.
 | `api_surface` | TEXT    | member invoked, e.g. `"Command"` or `"Command.option"` |
 | `scanned_at`  | TEXT    | defaults to `CURRENT_TIMESTAMP`                        |
 
-To read a call site with its package name, join through `package_id`:
-
-```sql
-SELECT p.name AS dependency, cs.file, cs.line, cs.api_surface
-FROM call_sites cs
-JOIN packages p ON p.id = cs.package_id
-```
+To read a call site with its package name, join `call_sites` to `packages`
+through `package_id`.
 
 ### `pending_changelog_lookups`
 

@@ -5,12 +5,6 @@ themselves (an LLM API key, a coding agent command, a GitHub token) before
 running the CLI at all — every invocation always starts the changelog-lookup
 and release-analysis schedulers (see below), so this is never optional.
 
-```
-src/config/
-  config.ts         LlmConfig, CodingAgentConfig, GithubConfig, AppConfig
-  config-loader.ts  class ConfigLoader
-```
-
 ## File location
 
 `~/.apiweiser-cli/config.json` — same dedicated directory as the
@@ -21,22 +15,10 @@ the scanned repo.
 
 ## Shape
 
-```json
-{
-  "llm": {
-    "apiKey": "sk-...",
-    "url": "https://api.openai.com/v1",
-    "model": "gpt-5"
-  },
-  "codingAgent": {
-    "command": "claude",
-    "args": ["-p"]
-  },
-  "github": {
-    "token": "ghp_..."
-  }
-}
-```
+An object with three top-level keys: `llm` (`apiKey`, `url`, `model`),
+`codingAgent` (`command`, `args`), and `github` (`token`) — see
+`AppConfig`/`LlmConfig`/`CodingAgentConfig`/`GithubConfig` in
+`src/config/config.ts` for the exact fields.
 
 `llm.url` is passed straight through as the OpenAI SDK's `baseURL` —
 pointing it at a self-hosted or proxy endpoint that speaks the same wire
