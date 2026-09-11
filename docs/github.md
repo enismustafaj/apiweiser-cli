@@ -6,17 +6,6 @@ actual PR against the repo being monitored: apply it for real, and - only
 if it actually changed something - branch, commit, push, and open a PR
 describing the migration.
 
-```
-src/github/
-  types.ts                       PullRequestRequest, PullRequestResult, GitHubRemote
-  tool/dependency-bumper.ts       class DependencyBumper
-  tool/codemod-applier.ts        class CodemodApplier
-  tool/git-tool.ts               class GitTool
-  pull-request-service.ts        class PullRequestService(config)
-  db/pull-requests-repository.ts class PullRequestsRepository
-  index.ts                       class GithubModule(config)
-```
-
 ## `DependencyBumper.bump(repoPath, packageName, newVersion)`
 
 Found missing the hard way: applying the chalk v4→v5 codemod to a real

@@ -1,0 +1,126 @@
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0;
+}
+
+.brand-logo {
+  height: 2.5rem;
+  width: auto;
+}
+
+.brand p {
+  margin: 0;
+  color: var(--pico-muted-color);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stats-grid article {
+  text-align: center;
+}
+
+.stats-grid strong {
+  display: block;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.stats-grid span {
+  color: var(--pico-muted-color);
+  font-size: 0.85rem;
+}
+
+.tab-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tab-labels {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab-labels label {
+  width: auto;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-radius: var(--pico-border-radius);
+  background: transparent;
+  color: var(--pico-muted-color);
+  cursor: pointer;
+}
+
+.tab-panel {
+  display: none;
+}
+
+#tab-packages:checked ~ .tab-labels label[for="tab-packages"],
+#tab-suggestions:checked ~ .tab-labels label[for="tab-suggestions"],
+#tab-pull-requests:checked ~ .tab-labels label[for="tab-pull-requests"] {
+  background: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+}
+
+#tab-packages:checked ~ #panel-packages,
+#tab-suggestions:checked ~ #panel-suggestions,
+#tab-pull-requests:checked ~ #panel-pull-requests {
+  display: block;
+}
+
+.empty {
+  color: var(--pico-muted-color);
+  font-style: italic;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  color: var(--pico-muted-color);
+}
+
+.pagination a {
+  text-decoration: none;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+}
+
+.badge-major {
+  background: #d1435b;
+}
+
+.badge-minor {
+  background: #d18b34;
+}
+
+.badge-patch {
+  background: #2f9e6e;
+}
+
+.badge-default {
+  background: var(--pico-muted-color);
+}
+
+td code {
+  white-space: nowrap;
+}

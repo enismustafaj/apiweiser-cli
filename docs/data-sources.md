@@ -5,21 +5,6 @@ derives where to fetch their release changelog from, using npm registry
 metadata only (no LLM). Lookups are queued and drained in rate-limit-sized
 batches on a schedule, not done inline during a scan.
 
-```
-src/data-sources/
-  types.ts                                shared types (see below, one per class)
-  npm-registry-lookup.ts                  class NpmRegistryLookup
-  github-release-fetcher.ts               class GitHubReleaseFetcher
-  agent/breaking-change-classifier.ts     class BreakingChangeClassifierAgent
-  db/pending-changelog-lookups-repository.ts  class PendingChangelogLookupsRepository(db)
-  db/data-sources-repository.ts           class DataSourcesRepository(db)
-  db/release-analysis-repository.ts        class ReleaseAnalysisRepository(db)
-  index.ts                                class DataSourcesModule
-  changelog-lookup-scheduler.ts           class Scheduler(cronExpr) - drains the lookup queue
-  release-analysis.ts                     class ReleaseAnalysisModule(llmConfig)
-  release-analysis-scheduler.ts           class Scheduler(cronExpr, llmConfig) - runs release analysis
-```
-
 This module covers two related but independent pipelines: **finding**
 where a package's changelog lives (`NpmRegistryLookup` → `data_sources`,
 no LLM), and **classifying** what its latest release actually says
@@ -105,21 +90,13 @@ See [`docs/database.md`](./database.md) for the column list.
 
 ## `DataSourcesModule`
 
-```ts
-enqueueForLookup(dependencies: Dependency[]): void
-```
+`enqueueForLookup(dependencies)` is called by `DependenciesModule.scan()`
+with the "new only" set, after `PackagesRepository.upsert()` has run (so
+each `Dependency.id` is set — see the `RETURNING id` note in
+[`docs/database.md`](./database.md)). Pure insert via
+`PendingChangelogLookupsRepository`, no network call, no `await` needed.
 
-Called by `DependenciesModule.scan()` with the "new only" set, after
-`PackagesRepository.upsert()` has run (so each `Dependency.id` is set —
-see the `RETURNING id` note in [`docs/database.md`](./database.md)). Pure
-insert via `PendingChangelogLookupsRepository`, no network call, no
-`await` needed.
-
-```ts
-async processPendingLookups(): Promise<void>
-```
-
-One scheduler tick:
+`processPendingLookups()` runs one scheduler tick:
 
 1. Claims up to `BATCH_SIZE` (50 — npm doesn't publish an official rate
    limit for the public registry; this is a conservative budget based on
@@ -156,13 +133,8 @@ by-name subquery `CallSitesRepository` uses.
 Same shape as `suggestions/suggestions-scheduler.ts`: wraps `node-cron`'s `createTask`
 so the task exists but sits idle until `.start()`, and each tick catches
 and logs any failure from `processPendingLookups()` rather than letting
-one bad tick kill the schedule.
-
-```ts
-new Scheduler("*/5 * * * *"); // e.g. every 5 minutes
-scheduler.start();
-scheduler.stop();
-```
+one bad tick kill the schedule. Constructed with a cron expression (e.g.
+every 5 minutes), then `.start()`/`.stop()`.
 
 ## CLI
 
@@ -241,15 +213,8 @@ row per package actually classified, tied to that run via `run_id`.
 ### `Scheduler` (release-analysis-scheduler.ts)
 
 Same shape as the other two schedulers in this CLI, but also takes an
-`LlmConfig` (to construct `ReleaseAnalysisModule`'s classifier):
-
-```ts
-new Scheduler("0 0 * * *", llmConfig); // once a day at midnight - the intended cadence
-scheduler.start();
-scheduler.stop();
-```
-
-The cron expression is a constructor argument, not hardcoded inside the
+`LlmConfig` (to construct `ReleaseAnalysisModule`'s classifier) alongside
+the cron expression. The cron expression is a constructor argument, not hardcoded inside the
 class - same as the other schedulers. `main.ts` always passes the fixed
 daily expression, though; it's not behind a CLI flag (see below).
 

@@ -6,17 +6,15 @@ Given a repo path and the list of `Dependency` objects produced by
 [`SbomTool`](../src/dependencies/tool/sbom-tool.ts), the scanner finds every
 place in the repo's TypeScript source where one of those dependencies is
 actually _invoked_, and which exported member was called (the "API
-surface"). It returns `CallSite[]`:
+surface"). It returns a `CallSite[]`, one entry per resolved call:
 
-```ts
-interface CallSite {
-  dependency: string; // package name, e.g. "commander"
-  file: string; // absolute path of the source file
-  line: number; // 1-based line of the call
-  snippet: string; // source text of the call expression
-  apiSurface: string; // the member invoked, e.g. "Command" or "Command.option"
-}
-```
+| field        | notes                                                      |
+| ------------ | ---------------------------------------------------------- |
+| `dependency` | package name, e.g. `"commander"`                           |
+| `file`       | absolute path of the source file                           |
+| `line`       | 1-based line of the call                                   |
+| `snippet`    | source text of the call expression                         |
+| `apiSurface` | the member invoked, e.g. `"Command"` or `"Command.option"` |
 
 ## Algorithm
 
@@ -76,26 +74,12 @@ called on was produced.
 
 ## Example
 
-For this repo's own `src/main.ts`:
-
-```ts
-import { Command } from "commander";
-const app = new Command();
-app.name("apiweiser-cli").description("").option("-p, --path <path>", "project path");
-app.parse(process.argv);
-const opts = app.opts();
-```
-
-Running `new Scanner().findCallSites(".", [{ name: "commander", ... }])`
-returns one call site per link in the chain, plus the constructor call:
-
-```js
-[
-  { apiSurface: "Command.option", line: 6, ... },
-  { apiSurface: "Command.description", line: 6, ... },
-  { apiSurface: "Command.name", line: 6, ... },
-  { apiSurface: "Command.parse", line: 10, ... },
-  { apiSurface: "Command.opts", line: 12, ... },
-  { apiSurface: "Command", line: 4, snippet: "new Command()" },
-]
-```
+Scanning this repo's own `src/main.ts` - which constructs a `commander`
+`Command`, then chains `.name(...)`, `.description(...)`, and
+`.option(...)` off it before separately calling `.parse(...)` and
+`.opts()` - `Scanner.findCallSites` returns one call site per link in the
+chain, plus the constructor call itself: `Command.option`,
+`Command.description`, and `Command.name` all on the chain's line;
+`Command.parse` and `Command.opts` on their own, later lines; and a
+`Command` entry (no member - the constructor call) with `new Command()` as
+its snippet.

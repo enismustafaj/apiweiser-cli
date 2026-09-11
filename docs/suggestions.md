@@ -3,16 +3,6 @@
 `src/suggestions/` — proposes version updates for a repo's dependencies via
 Renovate, and can do so on a recurring cron schedule.
 
-```
-src/suggestions/
-  types.ts                      RenovateUpdate
-  tool/renovate-report.ts       raw shape of Renovate's own JSON report
-  tool/renovate-tool.ts         class RenovateTool  - subprocess to `npx renovate`
-  db/suggestions-repository.ts  class SuggestionsRepository(db)
-  index.ts                      class SuggestionsModule(codingAgentConfig, githubConfig)
-  suggestions-scheduler.ts      class Scheduler(repoPath, cronExpr, codingAgentConfig, githubConfig)
-```
-
 ## `RenovateTool`
 
 `RenovateTool.run(repoPath): Promise<RenovateUpdate[]>`
@@ -44,16 +34,8 @@ between versions.
 reliably fails a later step (writing update branches) even on a totally
 successful scan, because that platform mode can't push branches — a
 `platform=local` limitation, not a real error. The report file is written
-_before_ that step runs, so:
-
-```ts
-try {
-  await execFileAsync("npx", [...]);
-} catch (err) {
-  console.debug("renovate exited non-zero (ignored, trusting the report file):", err);
-}
-```
-
+_before_ that step runs, so the non-zero exit is caught and logged at
+`console.debug` (in case it's ever something else) rather than thrown -
 the failure is swallowed (logged at debug level in case it's ever something
 else) and the code moves on to read the report file regardless. If the
 report is genuinely missing or malformed — Renovate itself failed, not just
@@ -71,11 +53,10 @@ scans as zero dependencies with no error or warning.
 
 ### Flattening the report
 
-Renovate's report nests four levels deep:
-
-```
-repositories → { [repoName]: { packageFiles: { [manager]: [ { packageFile, deps: [ { ...dep, updates: [...] } ] } ] } } }
-```
+Renovate's report nests four levels deep: `repositories`, keyed by repo
+name, each holding `packageFiles`, keyed by manager, each an array of
+`{ packageFile, deps }`, each `dep` carrying its own array of proposed
+`updates`.
 
 `toUpdates()` walks all four levels and emits one `RenovateUpdate` per
 `(dep, update)` pair — not per dependency. A single dependency can have
@@ -115,20 +96,10 @@ only run queries against `db.connection`.
 
 ## `SuggestionsModule`
 
-Thin orchestrator, same shape as `DependenciesModule`:
-
-```ts
-async generate(repoPath: string): Promise<RenovateUpdate[]> {
-  const updates = await this.renovateTool.run(repoPath);
-  this.suggestionsRepository.insert(updates);
-
-  for (const update of updates) {
-    await this.raiseChangeRequestIfBreaking(repoPath, update);
-  }
-
-  return updates;
-}
-```
+Thin orchestrator, same shape as `DependenciesModule`: `generate(repoPath)`
+runs `RenovateTool`, inserts the resulting updates via
+`SuggestionsRepository`, then raises a change request for each one that
+turns out to be breaking (below), before returning the updates.
 
 ### Raising change requests for breaking updates
 
@@ -160,15 +131,9 @@ both directly.
 ## `Scheduler`
 
 Wraps `node-cron` so `SuggestionsModule.generate` can run on a recurring
-schedule instead of once:
-
-```ts
-new Scheduler(repoPath, "0 9 * * *", codingAgentConfig, githubConfig); // e.g. every day at 09:00
-scheduler.start();
-scheduler.stop();
-```
-
-Built with `createTask` (not `schedule`) specifically so the task exists but
+schedule instead of once - constructed with `repoPath`, a cron expression
+(e.g. every day at 09:00), and the coding-agent/GitHub config, then
+`.start()`/`.stop()`. Built with `createTask` (not `schedule`) specifically so the task exists but
 sits idle until `.start()` is called — `Scheduler.start()`/`.stop()` map
 directly onto it. Each tick calls a private `run()` that catches and
 `console.error`s any failure, so one bad run (network blip, Renovate crash,

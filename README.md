@@ -135,6 +135,16 @@ All state lives in `~/.apiweiser-cli/` — the sqlite db, the config file,
 SBOM/Renovate caches, and generated codemod packages — separate from
 whatever repo you point `--path` at.
 
+### Dashboard
+
+```sh
+apiweiser-cli dashboard --port 3000
+```
+
+A local, read-only web view over that same sqlite db — packages,
+suggestions, and PRs opened so far — see
+[`docs/dashboard.md`](./docs/dashboard.md).
+
 ## What to expect
 
 - **The first scan of a large repo can take a few minutes** the first
