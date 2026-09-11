@@ -10,15 +10,10 @@ import { DashboardRepository } from "./db/dashboard-repository.ts";
 import { dashboardPage } from "./pages.ts";
 import type { Tab } from "./types.ts";
 
-// Resolved from this file's own location, not process.cwd() - the
-// dashboard command can be run from any directory.
 const STATIC_DIR = join(import.meta.dirname, "static");
 
 const TABS = new Set<Tab>(["packages", "suggestions", "pull-requests"]);
 
-// 1-based, clamped to at least 1 - an out-of-range or garbage query param
-// (?packagesPage=abc, ?packagesPage=-3) just falls back to page 1 rather
-// than erroring.
 function pageParam(value: string | undefined): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
