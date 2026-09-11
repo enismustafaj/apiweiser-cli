@@ -40,6 +40,7 @@ export class RenovateTool {
           "--onboarding=false",
           "--require-config=optional",
           "--dependency-dashboard=false",
+          "--osv-vulnerability-alerts=true",
           "--report-type=file",
           `--report-path=${reportPath}`,
         ],
@@ -50,15 +51,11 @@ export class RenovateTool {
         },
       );
     } catch (err) {
-      // see comment above - expected, not rethrown, but logged for
-      // visibility in case it's actually something else going wrong.
       console.debug("renovate exited non-zero (ignored, trusting the report file):", err);
     }
   }
 
   private cacheKey(repoPath: string): string {
-    // ponytail: hash the repo path instead of sanitizing it into a
-    // filename, same trick as SbomTool.
     return createHash("sha1").update(repoPath).digest("hex").slice(0, 8);
   }
 

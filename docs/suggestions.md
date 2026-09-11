@@ -18,12 +18,19 @@ npx --yes renovate
   --onboarding=false            # skip the "add a renovate.json" flow
   --require-config=optional     # don't require a renovate.json to exist
   --dependency-dashboard=false  # skip the dashboard issue workflow
+  --osv-vulnerability-alerts=true  # check OSV.dev for known vulnerabilities too
   --report-type=file
   --report-path=<cache file>
 ```
 
 run with `cwd: repoPath` and `LOG_LEVEL=error` (its logs aren't parsed, only
 the report file is).
+
+**Why `--osv-vulnerability-alerts`**: Renovate's normal vulnerability alerts
+come from the git host (e.g. GitHub's Dependabot advisories), which
+requires a host token - not available on `--platform=local`, which has no
+host at all. OSV.dev needs no host auth, so enabling this is what lets a
+vulnerable dependency surface as a proposed update here at all.
 
 **Why the report file, not stdout/logs**: `--report-type=file` is Renovate's
 own stable, structured output — the same data other Renovate integrations
