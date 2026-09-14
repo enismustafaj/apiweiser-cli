@@ -1,5 +1,3 @@
-// Runs SuggestionsModule.generate on a cron schedule.
-
 import { createTask } from "node-cron";
 import type { ScheduledTask } from "node-cron";
 import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";

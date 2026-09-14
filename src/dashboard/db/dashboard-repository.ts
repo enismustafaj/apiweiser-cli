@@ -1,9 +1,3 @@
-// Read-only queries for the dashboard. Deliberately its own repository
-// rather than bolted onto PackagesRepository/SuggestionsRepository/
-// PullRequestsRepository - those are shaped around what each module needs
-// to write; this one joins across tables for what a human wants to look
-// at, and has no writes at all.
-
 import type { Database } from "../../db/database.ts";
 import type { Page, PackageRow, PullRequestRow, SuggestionRow } from "../types.ts";
 
@@ -51,10 +45,7 @@ export class DashboardRepository {
     );
   }
 
-  // Shared by all three lists above - same shape (a plain table, no
-  // filters), just a different query. `page` is 1-based and clamped to at
-  // least 1 by the caller (server.ts); a page past the end just comes back
-  // with an empty `rows`, same as SQLite's own OFFSET behavior.
+  // `page` is 1-based, clamped to at least 1 by the caller (server.ts).
   private paginate<T>(table: string, query: string, page: number): Page<T> {
     const { count } = this.db.connection
       .prepare(`SELECT COUNT(*) AS count FROM ${table}`)

@@ -23,11 +23,9 @@ export class RenovateTool {
     return this.toUpdates(report);
   }
 
-  // Renovate exits non-zero for plenty of reasons unrelated to whether the
-  // report itself was written (e.g. `platform=local` can't push branches,
-  // which it still attempts during a dry run). So the exit code/error here
-  // is ignored - if the report file is missing or malformed, reading it
-  // right after will throw on its own.
+  // Renovate exits non-zero for reasons unrelated to the report itself
+  // (e.g. `platform=local` can't push branches) - ignored here; a missing
+  // or malformed report throws on its own when read below.
   private async runRenovate(repoPath: string, reportPath: string): Promise<void> {
     try {
       await execFileAsync(

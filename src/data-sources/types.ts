@@ -1,5 +1,3 @@
-// Shared types for the data-sources module.
-
 export interface PendingLookup {
   pendingId: number;
   packageId: number;

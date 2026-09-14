@@ -113,27 +113,32 @@ to build a codemod package (see
 
 ## Usage
 
-There's only one flag, and it's required:
+Point it at exactly one of a local path or a git URL:
 
 ```sh
-node src/main.ts --path <path-to-repo>
+node src/main.ts scan --path <path-to-repo>
+node src/main.ts scan --repo <git-url>
 ```
 
-Scans `<path-to-repo>` once (generates its SBOM, records its dependencies,
-finds every call site, and queues anything brand new for a
-changelog-source lookup), then settles into a long-running process running
-three daily schedulers against `<path-to-repo>`, in order: draining the
-changelog-lookup queue, classifying releases as breaking or not, and
-checking Renovate for version update suggestions. Whenever a suggestion
-turns out to already be classified as breaking, the automation kicks in: a
-coding agent builds and tests a codemod for the migration, applies it, and
-opens a PR — no further action needed from you beyond reviewing it. Safe to
-re-run the scan part — unchanged dependencies are skipped entirely, so
-it's fast even on a large repo. Leave the process running.
+`--repo` clones the URL (or pulls latest, if it's already been cloned by a
+previous run) into `~/.apiweiser-cli/repos/<owner>-<repo>/` and scans that
+instead — everything after this point behaves identically either way.
+
+Scans the repo once (generates its SBOM, records its dependencies, finds
+every call site, and queues anything brand new for a changelog-source
+lookup), then settles into a long-running process running three daily
+schedulers, in order: draining the changelog-lookup queue, classifying
+releases as breaking or not, and checking Renovate for version update
+suggestions. Whenever a suggestion turns out to already be classified as
+breaking, the automation kicks in: a coding agent builds and tests a
+codemod for the migration, applies it, and opens a PR — no further action
+needed from you beyond reviewing it. Safe to re-run the scan part —
+unchanged dependencies are skipped entirely, so it's fast even on a large
+repo. Leave the process running.
 
 All state lives in `~/.apiweiser-cli/` — the sqlite db, the config file,
-SBOM/Renovate caches, and generated codemod packages — separate from
-whatever repo you point `--path` at.
+SBOM/Renovate caches, clones made via `--repo`, and generated codemod
+packages — separate from whatever repo is actually being scanned.
 
 ### Dashboard
 

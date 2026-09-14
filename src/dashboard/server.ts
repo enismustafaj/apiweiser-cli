@@ -1,6 +1,5 @@
-// Hono app for the dashboard: one server-rendered page (see pages.ts - no
-// JSX, Node's native TS stripping can't transform it), plus the
-// Pico.css/overrides static/ serves.
+// No JSX - Node's native TS stripping can't transform it, so pages.ts
+// builds HTML via hono/html tagged templates instead.
 
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";

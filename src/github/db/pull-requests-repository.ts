@@ -15,9 +15,7 @@ export class PullRequestsRepository {
     this.db = db;
   }
 
-  // One row per PR actually opened - not per attempt (see
-  // GithubModule.openPullRequestForCodemod, which returns `created: false`
-  // without a URL when there's nothing to record).
+  // One row per PR actually opened, not per attempt.
   insert(pr: OpenedPullRequest): void {
     this.db.connection
       .prepare(

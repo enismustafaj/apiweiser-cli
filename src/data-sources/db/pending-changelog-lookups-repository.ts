@@ -1,8 +1,3 @@
-// Queue of packages waiting for a changelog-source lookup. DataSourcesModule
-// enqueues new packages here immediately (no network call), and drains it
-// in rate-limit-sized batches on a schedule - see DataSourcesModule and
-// docs/data-sources.md.
-
 import type { Database } from "../../db/database.ts";
 import type { Dependency } from "../../dependencies/types.ts";
 import type { PendingLookup } from "../types.ts";
@@ -14,8 +9,7 @@ export class PendingChangelogLookupsRepository {
     this.db = db;
   }
 
-  // UNIQUE(package_id) + INSERT OR IGNORE: a package already queued from an
-  // earlier scan stays queued once, it doesn't duplicate.
+  // UNIQUE(package_id): an already-queued package doesn't get a duplicate row.
   enqueue(dependencies: Dependency[]): void {
     const insert = this.db.connection.prepare(
       `INSERT OR IGNORE INTO pending_changelog_lookups (package_id) VALUES (?)`,
@@ -26,8 +20,6 @@ export class PendingChangelogLookupsRepository {
     }
   }
 
-  // Oldest-queued first, capped at `limit` - the caller's per-tick budget
-  // for however many registry requests it's willing to make.
   takeBatch(limit: number): PendingLookup[] {
     return this.db.connection
       .prepare(

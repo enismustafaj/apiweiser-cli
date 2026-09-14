@@ -1,5 +1,3 @@
-// Shared types for the suggestions module.
-
 export interface RenovateUpdate {
   dependency: string;
   packageFile: string;

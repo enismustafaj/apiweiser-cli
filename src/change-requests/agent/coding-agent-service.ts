@@ -1,21 +1,12 @@
-// Asks a configured coding agent (Claude Code, Codex, ...) to build a
-// codemod package for a breaking package upgrade, "the codemod way": the
-// agent uses the codemod CLI's AI skill/MCP tools (installed once,
-// user-scoped, via `npx codemod ai --harness <claude|codex> --user` - see
-// install.sh and docs/change-requests.md) to scaffold a package with
-// `codemod init`, implement an AST-based transform, and iterate against
-// its own tests until they pass - that loop happens *inside* the agent's
-// own session, driven by the skill's instructions, not by this class.
-// This class only spawns the agent process, once, and waits for it to
-// finish - same subprocess-and-wait shape as SbomTool/RenovateTool.
+// Spawns the configured coding agent once and waits for it to finish -
+// the codemod build/test loop itself happens inside the agent's own
+// session, driven by the codemod skill (see docs/change-requests.md), not
+// by this class.
 //
-// cwd is the codemod's own registry path directly - a user-scoped skill
-// install resolves the /codemod command regardless of cwd (verified
-// directly, from a throwaway directory with no project config at all),
-// unlike a --project-scoped install, which only resolves from the
-// specific directory it was installed into. That's the whole reason this
-// installs --user, not --project: a globally-installed CLI has no
-// "project" of its own to scope it to.
+// cwd is the codemod's own registry path directly - only works because
+// the skill is installed --user, not --project (see install.sh); a
+// --project-scoped install only resolves /codemod from the directory it
+// was installed into.
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -25,9 +16,6 @@ import type { ChangeRequestInput, CodemodResult } from "../types.ts";
 
 const execFileAsync = promisify(execFile);
 
-// The agent's session output is a transcript, not structured data - this is
-// the contract asked of it (see buildPrompt) so the result can be parsed
-// instead of scraped from prose.
 const RESULT_MARKER = "CODEMOD_RESULT:";
 
 export class CodingAgentService {
@@ -49,11 +37,8 @@ export class CodingAgentService {
         maxBuffer: 1024 * 1024 * 50,
       }));
     } catch (err) {
-      // A non-zero exit here still carries everything the agent printed
-      // before it gave up, on err.stdout - Node attaches it directly to the
-      // error object (same shape as a successful exec's result). Logging it
-      // is the only way to see what actually happened; err.message alone is
-      // just "Command failed: <argv>" plus stderr, which doesn't include it.
+      // err.message alone is just "Command failed: <argv>" plus stderr -
+      // stdoutOf() recovers what the agent actually printed before failing.
       const errStdout = this.stdoutOf(err);
       console.error(
         `CodingAgentService: agent process failed for "${input.packageName}". stdout:\n${errStdout}`,
@@ -129,10 +114,7 @@ with "${RESULT_MARKER}" followed by JSON matching
     try {
       const json = line.slice(line.indexOf(RESULT_MARKER) + RESULT_MARKER.length).trim();
       const result = JSON.parse(json) as CodemodResult;
-      // Spread first, codemodPath last: our own value (what the agent was
-      // actually told to scaffold at) always wins over whatever it echoed
-      // back in its JSON, which is redundant at best if correct and wrong
-      // at worst if the agent mistyped/relativized it.
+      // codemodPath last: our own value wins over whatever the agent echoed.
       return { ...result, codemodPath };
     } catch (err) {
       console.error(`CodingAgentService: couldn't parse agent result line "${line}":`, err);
@@ -140,9 +122,7 @@ with "${RESULT_MARKER}" followed by JSON matching
     }
   }
 
-  // execFileAsync's rejection is still an Error, with stdout/stderr from the
-  // process attached directly on it (same shape as a successful result) -
-  // this just narrows the `unknown` catch type to read it safely.
+  // execFileAsync's rejection carries stdout/stderr directly on the Error.
   private stdoutOf(err: unknown): string {
     if (err && typeof err === "object" && "stdout" in err) {
       return String((err as { stdout: unknown }).stdout);

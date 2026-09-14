@@ -1,7 +1,3 @@
-// Once per run: walks every known data source, fetches its package's
-// latest GitHub release, and classifies whether it's a breaking change.
-// Registers the run (start/end/status) and each package's result.
-
 import type { LlmConfig } from "../config/config.ts";
 import { db } from "../db/singleton.ts";
 import { BreakingChangeClassifierAgent } from "./agent/breaking-change-classifier.ts";
@@ -9,11 +5,8 @@ import { DataSourcesRepository } from "./db/data-sources-repository.ts";
 import { ReleaseAnalysisRepository } from "./db/release-analysis-repository.ts";
 import { GitHubReleaseFetcher } from "./github-release-fetcher.ts";
 
-// Paced delay before each classification call, so a run with many data
-// sources doesn't blast the model's API and hit its rate limit. Also
-// paces the GitHub API calls, though GitHub's own unauthenticated limit
-// (60/hour) can still bottleneck a run with many packages - see
-// docs/data-sources.md.
+// Paced so a run with many data sources doesn't hit the model's (or
+// GitHub's unauthenticated, 60/hour) rate limit - see docs/data-sources.md.
 // ponytail: fixed constant until there's a reason to tune it.
 const DELAY_BETWEEN_PACKAGES_MS = 1000;
 
@@ -47,14 +40,12 @@ export class ReleaseAnalysisModule {
     }
   }
 
-  // One data source failing (no releases, GitHub rate limit, model
-  // refusal, ...) doesn't abort the run - logged and skipped, same
-  // resilience pattern as the rest of this module.
+  // One data source failing doesn't abort the run - logged and skipped.
   private async analyzeOne(runId: number, packageId: number, url: string): Promise<void> {
     try {
       const release = await this.releaseFetcher.fetchLatest(url);
-      if (!release) return; // no releases published for this package
-      if (!release.body.trim()) return; // nothing to classify
+      if (!release) return;
+      if (!release.body.trim()) return;
 
       const classification = await this.classifier.classify(release.body);
       this.releaseAnalysisRepository.insertResult(

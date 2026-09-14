@@ -10,9 +10,7 @@ export interface ChangeRequestInput {
   summary: string;
 }
 
-// The agent's own final-line report - see CodingAgentService.buildPrompt,
-// which requires it to print this as JSON so the result is parseable
-// instead of scraped from prose.
+// The agent's final-line report - see CodingAgentService.buildPrompt.
 export interface CodemodResult {
   success: boolean;
   codemodPath: string;

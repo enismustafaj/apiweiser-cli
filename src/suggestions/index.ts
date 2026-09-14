@@ -1,11 +1,3 @@
-// Suggestions module: runs Renovate via RenovateTool to get proposed
-// version updates, and persists them via SuggestionsRepository.
-//
-// For each update, checks whether its new version was already classified
-// by ReleaseAnalysisModule (see docs/data-sources.md) - if that release is
-// breaking, raises a change request with the package's current call sites
-// attached, so whoever handles it can see what actually needs updating.
-
 import { resolve } from "node:path";
 import { ReleaseAnalysisRepository } from "../data-sources/db/release-analysis-repository.ts";
 import { ChangeRequestsModule } from "../change-requests/index.ts";
@@ -28,9 +20,7 @@ export class SuggestionsModule {
   }
 
   async generate(repoPath: string): Promise<RenovateUpdate[]> {
-    // Canonicalized once, here - same reasoning as DependenciesModule.scan:
-    // packages/call_sites are keyed by this string, so it has to match
-    // whatever DependenciesModule already resolved it to.
+    // Must match whatever DependenciesModule.scan resolved it to.
     const absoluteRepoPath = resolve(repoPath);
 
     const updates = await this.renovateTool.run(absoluteRepoPath);

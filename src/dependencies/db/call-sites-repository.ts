@@ -1,13 +1,8 @@
-// Persists CallSites found by Scanner into the call_sites table, using an
-// injected db connection (the shared singleton in normal use).
-//
-// Each call site references its package by id, not name - PackagesRepository
-// must have upserted the dependency first (DependenciesModule does this
-// before scanning), or the package_id subquery below resolves to NULL and
-// the insert fails the NOT NULL/foreign key constraint. Every method here
-// is scoped to a repoPath, since `packages` now has one row per
-// (repoPath, name) - resolving package_id by name alone would risk
-// matching a different repo's row for the same package name.
+// PackagesRepository must upsert the dependency before this runs, or the
+// package_id subquery below resolves to NULL and violates the FK
+// constraint. Every method is scoped to repoPath - `packages` has one row
+// per (repoPath, name), so resolving package_id by name alone could match
+// a different repo's row for the same package name.
 
 import type { Database } from "../../db/database.ts";
 import type { CallSite } from "../types.ts";
@@ -40,9 +35,6 @@ export class CallSitesRepository {
     }
   }
 
-  // Clears out previously-stored call sites for these dependencies before a
-  // re-scan inserts fresh ones, so re-scanning a changed package doesn't
-  // just pile up stale duplicates next to the new rows.
   deleteForDependencies(repoPath: string, names: string[]): void {
     if (names.length === 0) return;
 

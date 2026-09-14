@@ -1,7 +1,4 @@
-// Turns a successfully-generated codemod into an actual PR against the
-// repo being monitored: apply the codemod's workflow to the real repo,
-// and - only if it actually changed anything - branch, commit, push, and
-// open a PR describing the migration. See docs/github.md.
+// See docs/github.md.
 
 import type { GithubConfig } from "../config/config.ts";
 import { db } from "../db/singleton.ts";
@@ -25,18 +22,13 @@ export class GithubModule {
   }
 
   async openPullRequestForCodemod(request: PullRequestRequest): Promise<PullRequestResult> {
-    // The codemod's transform only migrates call-site syntax - bumping the
-    // dependency itself (package.json + lockfile) is a separate,
-    // deterministic step (see DependencyBumper). Skipping it left a real PR
-    // that migrated to chalk v5's API while still declaring ^4.1.0 - source
-    // that referenced named exports that don't exist in the installed v4.
+    // The codemod only migrates call-site syntax - bumping package.json
+    // itself is a separate step (see DependencyBumper).
     await this.dependencyBumper.bump(request.repoPath, request.packageName, request.newVersion);
     await this.codemodApplier.apply(request.codemodPath, request.repoPath);
 
-    // A codemod applying cleanly but touching nothing isn't a failure -
-    // e.g. the repo's real call sites might only use API surface that
-    // didn't actually change (see docs/change-requests.md). Nothing to
-    // open a PR about either way.
+    // Not a failure - the repo's call sites might not use any API surface
+    // that actually changed.
     if (!(await this.git.hasChanges(request.repoPath))) {
       return { created: false, reason: "codemod produced no changes" };
     }

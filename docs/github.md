@@ -6,6 +6,36 @@ actual PR against the repo being monitored: apply it for real, and - only
 if it actually changed something - branch, commit, push, and open a PR
 describing the migration.
 
+## `CloneTool` / `RepoCloner` - getting a repo onto disk at all
+
+`apiweiser-cli scan` takes exactly one of `--path <path>` (a repo already
+checked out locally) or `--repo <url>` (a git URL to clone). A separate
+class from `GitTool` below - `GitTool`'s methods all assume the repo is
+already checked out (they run `git ... ` with `cwd: repoPath`), which isn't
+true yet for a fresh `--repo` invocation. `CloneTool.clone(url, destDir)`/
+`.pull(repoPath)` are authenticated exactly the same way `GitTool.push()`
+is (see below) - factored into a shared `gitAuthEnv(token)` helper
+(`git-auth.ts`) so the header logic isn't duplicated between the two
+classes.
+
+`RepoCloner.cloneOrPull(url)` is what `main.ts` actually calls: picks a
+stable local directory - `~/.apiweiser-cli/repos/<owner>-<repo>/`, readable
+rather than hashed like the SBOM/Renovate caches, since this directory
+_is_ the working tree everything else in the CLI (`Scanner`, `GitTool`,
+`CodemodApplier`, ...) operates on, not just an internal cache file - and
+either clones fresh (first time this URL is seen) or pulls latest (every
+run after that, so re-running the CLI against the same `--repo` doesn't
+re-clone from scratch). Returns the local path; everything downstream
+(`DependenciesModule`, the schedulers, `GithubModule`) only ever sees a
+`repoPath` and has no idea whether it came from `--path` or a clone.
+
+**Trust model, same as everywhere else in this CLI**: `ConfigLoader` only
+checks that `github.token` is _present_, never that it's actually a valid
+credential (same for `llm.apiKey`) - so a garbage or expired token breaks
+`clone()` even against a fully public repo, the same way it would already
+break `push()`/PR creation today. No fallback to an unauthenticated clone
+attempt; a token the user configured is trusted to be real.
+
 ## `DependencyBumper.bump(repoPath, packageName, newVersion)`
 
 Found missing the hard way: applying the chalk v4→v5 codemod to a real
@@ -72,7 +102,7 @@ Thin wrapper over the `git` CLI, one method per step:
   remote - there's nothing to open a PR against.
 
 **Authenticating the push**: `git`'s own push credentials aren't assumed to
-be configured for whatever repo `--path` points at - `push()` sets
+be configured for whatever repo `--path`/`--repo` points at - `push()` sets
 `http.extraHeader` to `Authorization: Basic <base64(x-access-token:token)>`,
 the same `github.token` `PullRequestService` uses, and the same header
 format GitHub documents for using a PAT over HTTPS git (works for both
@@ -82,7 +112,9 @@ line - `-c` puts the token in argv, which (unlike env vars) is visible to
 any other process on the machine via `ps`. A no-op if `origin` is an SSH
 remote (`git@github.com:...`) - git only applies `http.extraHeader` to
 HTTP(S) transport, so this doesn't break SSH-authenticated pushes, it just
-doesn't help them either.
+doesn't help them either. This logic lives in `git-auth.ts`'s
+`gitAuthEnv(token)`, shared with `CloneTool` (above) rather than
+duplicated - `push()` and `clone()`/`pull()` need the exact same header.
 
 ## `PullRequestService.open(owner, repo, params)`
 

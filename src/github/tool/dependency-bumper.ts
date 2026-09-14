@@ -1,12 +1,6 @@
-// Bumps a package's declared version in the target repo's own package.json
-// and updates its lockfile - found missing the hard way, testing against a
-// real repo: CodemodApplier's transform migrates *call-site syntax*, but a
-// codemod package has no business editing package manifests or running
-// installs (it doesn't know the target repo's package manager, and an
-// ast-grep transform isn't the right tool for a manifest/lockfile update
-// anyway). This is a separate, deterministic step this pipeline runs
-// directly, delegating to whichever package manager the target repo
-// actually uses.
+// CodemodApplier's transform only migrates call-site syntax - bumping the
+// dependency itself is a separate step, via whichever package manager the
+// target repo actually uses.
 
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -21,7 +15,7 @@ type DependencySection = "dependencies" | "devDependencies";
 export class DependencyBumper {
   async bump(repoPath: string, packageName: string, newVersion: string): Promise<void> {
     const section = this.declaredIn(repoPath, packageName);
-    if (!section) return; // not a direct dependency here - nothing to bump
+    if (!section) return;
 
     const manager = this.detectPackageManager(repoPath);
     const spec = `${packageName}@${newVersion}`;
@@ -46,10 +40,8 @@ export class DependencyBumper {
     }
   }
 
-  // Only "dependencies"/"devDependencies" - a peerDependency's version range
-  // isn't something to "install" the same way, and bumping one without the
-  // consuming project's own say-so is a bigger decision than this pipeline
-  // should make unattended.
+  // Deliberately excludes peerDependencies - bumping one without the
+  // consuming project's own say-so is a bigger call than this should make.
   private declaredIn(repoPath: string, packageName: string): DependencySection | null {
     const pkg = JSON.parse(readFileSync(join(repoPath, "package.json"), "utf8"));
     if (pkg.dependencies?.[packageName]) return "dependencies";

@@ -1,12 +1,7 @@
-// Single shared connection to the CLI's sqlite db, so modules don't each
-// open their own handle to the same file.
-//
 // Deliberately kept out of database.ts: importing the Database *class*
-// (e.g. from tests, to construct an isolated `:memory:` instance) must not
-// have the side effect of opening the real ~/.apiweiser-cli/db.sqlite
-// file. When that side effect lived in database.ts, every test file that
-// imported Database triggered it too, and concurrent test processes ended
-// up racing to open and migrate the same real file.
+// (e.g. from a test, for an isolated `:memory:` instance) must not open
+// the real db.sqlite as a side effect - that used to make every test file
+// that imported Database race to open/migrate the same real file.
 
 import { Database } from "./database.ts";
 

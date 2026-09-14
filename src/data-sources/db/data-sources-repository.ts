@@ -1,7 +1,3 @@
-// Persists where to fetch a package's changelog from. Keyed by package_id
-// directly (from Dependency.id, set by PackagesRepository.upsert()) -
-// callers already have it, no need to look it up again by name here.
-
 import type { Database } from "../../db/database.ts";
 import type { DataSourceEntry } from "../types.ts";
 
@@ -21,7 +17,6 @@ export class DataSourcesRepository {
     }
   }
 
-  // Every known data source - what ReleaseAnalysisModule walks each run.
   listAll(): DataSourceEntry[] {
     return this.db.connection
       .prepare(`SELECT package_id AS packageId, url FROM data_sources`)

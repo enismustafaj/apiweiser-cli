@@ -1,9 +1,4 @@
-// Local registry of generated codemod packages, keyed by package name +
-// version pair. A registry "entry" is just a directory - the codemod
-// package CodingAgentService's agent scaffolds (via `codemod init`) lives
-// directly at pathFor(...), no separate copy/import step. Whether an
-// entry already exists (and is reusable as-is) is for the agent itself to
-// judge, not a filesystem check here - see CodingAgentService's prompt.
+// See docs/change-requests.md for the keying scheme.
 
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";

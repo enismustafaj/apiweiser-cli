@@ -1,8 +1,4 @@
-// Applies an already-built, already-tested codemod package's workflow to a
-// real target repo, via the codemod CLI's own workflow runner - the same
-// tool used to build/test the package itself (see docs/change-requests.md).
-// This only ever produces working-tree changes; committing/pushing them is
-// GitTool's job.
+// Only produces working-tree changes; committing/pushing is GitTool's job.
 
 import { execFile } from "node:child_process";
 import { join } from "node:path";
@@ -24,10 +20,7 @@ export class CodemodApplier {
         "-t",
         targetRepoPath,
         "--no-interactive",
-        // The target repo may have pre-existing untracked/dirty files
-        // unrelated to this migration (build output, local config, ...) -
-        // this only cares about what the codemod itself changes, not
-        // whether the repo was already clean.
+        // The target repo may already have unrelated dirty/untracked files.
         "--allow-dirty",
         "--allow-fs",
       ],

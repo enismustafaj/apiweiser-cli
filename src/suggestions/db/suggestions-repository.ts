@@ -1,7 +1,3 @@
-// Persists RenovateUpdates found by RenovateTool into the suggestions
-// table, using an injected db connection (the shared singleton in normal
-// use).
-
 import type { Database } from "../../db/database.ts";
 import type { RenovateUpdate } from "../types.ts";
 

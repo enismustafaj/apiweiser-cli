@@ -15,17 +15,15 @@ export class DependenciesModule {
   private readonly dataSourcesModule = new DataSourcesModule();
 
   async scan(repoPath: string): Promise<CallSite[]> {
-    // Canonicalized once, here, so the same repo scanned via a relative
-    // path one run and an absolute path the next (or from a different cwd)
-    // is still recognized as the same repo in `packages`/`call_sites`, not
-    // as a second, separate one.
+    // Canonicalized so the same repo is recognized as the same repo
+    // regardless of relative/absolute path or cwd.
     const absoluteRepoPath = resolve(repoPath);
 
     const dependencies = await this.sbomTool.generate(absoluteRepoPath);
     const changedOrNew = this.packagesRepository.findChangedOrNew(absoluteRepoPath, dependencies);
     if (changedOrNew.length === 0) return [];
 
-    // Must run before upsert() - once upserted, every dependency has a row.
+    // Must run before upsert() - upsert() gives every dependency a row.
     const newDependencies = this.packagesRepository.findNew(changedOrNew);
 
     this.packagesRepository.upsert(absoluteRepoPath, changedOrNew);
@@ -36,8 +34,6 @@ export class DependenciesModule {
     const callSites = await this.scanner.findCallSites(absoluteRepoPath, changedOrNew);
     this.callSitesRepository.insert(absoluteRepoPath, callSites);
 
-    // Just queues new packages for lookup - no network call, no blocking on
-    // (or flooding) the npm registry. See DataSourcesModule/Scheduler.
     this.dataSourcesModule.enqueueForLookup(newDependencies);
 
     return callSites;

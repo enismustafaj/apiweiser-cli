@@ -1,6 +1,3 @@
-// Opens a PR via the GitHub REST API - the last step of turning a
-// generated, tested codemod into something a human can review and merge.
-
 import type { GithubConfig } from "../config/config.ts";
 
 interface OpenPullRequestParams {

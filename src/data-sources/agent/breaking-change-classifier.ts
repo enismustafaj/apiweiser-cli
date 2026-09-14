@@ -1,7 +1,3 @@
-// Classifies a release's changelog text as breaking or not, via an LLM
-// with a structured-output schema so the answer is always
-// { isBreaking: boolean, summary: string } - never prose to parse.
-
 import OpenAI from "openai";
 import type { LlmConfig } from "../../config/config.ts";
 import type { BreakingChangeClassification } from "../types.ts";
