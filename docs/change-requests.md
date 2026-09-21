@@ -121,6 +121,16 @@ style to go on. The prompt now explicitly tells the agent to handle every
 common way a package gets imported (default, namespace, named/destructured,
 `require(...)`) rather than just whichever one the sampled call sites show.
 
+**Capping the call-site list (token cost)**: `buildPrompt` includes at most
+`MAX_CALL_SITES_PER_SURFACE` (3) examples per distinct `apiSurface`, not
+every call site `Scanner` found. A repo with hundreds of call sites for one
+dependency would otherwise turn the prompt itself into a large chunk of
+input tokens, on every invocation, reused or not - and buys nothing, since
+the transform is meant to generalize beyond the sample anyway (see above).
+When the sample is smaller than the full list, the prompt says exactly how
+much was cut and tells the agent to inspect the surrounding files itself
+for the rest; below the cap, nothing changes.
+
 **Always asks the agent, even if an entry already exists**: `cwd` may
 already be non-empty (a previous repo hit this exact upgrade). The prompt
 tells the agent to check for that and inspect what's there against the
@@ -132,6 +142,19 @@ actually covers these call sites exists" - the exact gap the previous
 paragraph's chalk/`ts-loader` case exposed) - always invoking the agent
 costs more per repo, but a codemod that's silently wrong is worse than one
 that takes longer to confirm right.
+
+**Regression-safe extension**: fixtures accumulate in the same codemod
+package's `tests/` directory across every repo that's ever hit this
+upgrade - a first repo's fixtures aren't removed or replaced when a second
+repo forces an extension, they just sit alongside the new ones (verified
+in practice: the node-fetch codemod's original fixtures from one repo are
+still present, untouched, next to the `.buffer()` fixtures a second repo
+added hours later). The prompt requires the agent to run the codemod's
+_entire_ test suite - old fixtures and new together, via
+`run_jssg_tests`/`validate_codemod_package` - before reporting success, not
+a filtered run scoped to just the current repo's call sites. That's what
+actually proves a previous repo isn't regressed: not a check that its
+fixture file still exists on disk, but that it still passes.
 
 **Reporting the result**: an agent session's output is a transcript, not
 structured data. The prompt asks the agent to print exactly one line at the

@@ -28,7 +28,6 @@ export class RepoCloner {
     return destDir;
   }
 
-  // "owner-repo", e.g. "sindresorhus-got".
   private dirNameFor(url: string): string {
     const match = url.replace(/\.git$/, "").match(/([^/:]+)\/([^/]+)$/);
     if (!match) throw new Error(`Not a recognizable git repo URL: ${url}`);

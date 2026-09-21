@@ -1,22 +1,15 @@
-// Spawns the configured coding agent once and waits for it to finish -
-// the codemod build/test loop itself happens inside the agent's own
-// session, driven by the codemod skill (see docs/change-requests.md), not
-// by this class.
-//
-// cwd is the codemod's own registry path directly - only works because
-// the skill is installed --user, not --project (see install.sh); a
-// --project-scoped install only resolves /codemod from the directory it
-// was installed into.
-
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { CodingAgentConfig } from "../../config/config.ts";
+import type { CallSite } from "../../dependencies/types.ts";
 import { CodemodRegistry } from "../registry/codemod-registry.ts";
 import type { ChangeRequestInput, CodemodResult } from "../types.ts";
 
 const execFileAsync = promisify(execFile);
 
 const RESULT_MARKER = "CODEMOD_RESULT:";
+
+const MAX_CALL_SITES_PER_SURFACE = 3;
 
 export class CodingAgentService {
   private readonly config: CodingAgentConfig;
@@ -37,8 +30,6 @@ export class CodingAgentService {
         maxBuffer: 1024 * 1024 * 50,
       }));
     } catch (err) {
-      // err.message alone is just "Command failed: <argv>" plus stderr -
-      // stdoutOf() recovers what the agent actually printed before failing.
       const errStdout = this.stdoutOf(err);
       console.error(
         `CodingAgentService: agent process failed for "${input.packageName}". stdout:\n${errStdout}`,
@@ -54,9 +45,11 @@ export class CodingAgentService {
   }
 
   private buildPrompt(input: ChangeRequestInput, codemodPath: string): string {
-    const callSites = input.callSites
+    const sampledCallSites = this.sampleCallSites(input.callSites);
+    const callSites = sampledCallSites
       .map((site) => `- ${site.file}:${site.line} — ${site.snippet} (${site.apiSurface})`)
       .join("\n");
+    const truncated = sampledCallSites.length < input.callSites.length;
 
     return `/codemod
 
@@ -66,8 +59,11 @@ this changelog summary of what changed:
 
 ${input.summary}
 
-Call sites to migrate (also inspect the surrounding files yourself - this
-list may not be exhaustive):
+Call sites to migrate${
+      truncated
+        ? ` (showing ${sampledCallSites.length} of ${input.callSites.length} total, up to ${MAX_CALL_SITES_PER_SURFACE} per distinct API surface - inspect the surrounding files yourself for the rest)`
+        : " (also inspect the surrounding files yourself - this list may not be exhaustive)"
+    }:
 ${callSites}
 
 This codemod package will be stored in a shared local registry and reused
@@ -87,15 +83,34 @@ doesn't (e.g. it only handles a different import style, or missed part of
 the API surface), extend it rather than starting over. If nothing exists
 yet, scaffold fresh here - \`codemod init . --no-interactive\`.
 
+If extending: do not delete or modify any existing fixture under tests/ -
+those are what keep this codemod correct for every repo that has already
+used it, not just this one. Only add new fixtures alongside them.
+
 Either way, use the codemod skill's normal workflow: implement (or extend)
-an AST-based transform, add fixtures from the call sites above, and
-iterate until the package's own tests and \`validate_codemod_package\` are
-green. Do not stop until they are.
+an AST-based transform, add fixtures from the call sites above, and run
+the codemod's *entire* test suite - every existing fixture plus the new
+ones, via \`run_jssg_tests\`/\`validate_codemod_package\`, not a filtered or
+partial run - iterating until all of it is green. Do not stop until it is,
+and do not report success unless the full suite (not just the fixtures you
+added) passed.
 
 When finished, print exactly one line, with nothing else after it, starting
 with "${RESULT_MARKER}" followed by JSON matching
 { "success": boolean, "codemodPath": string, "reason"?: string } -
 "reason" only if success is false, explaining why you gave up.`;
+  }
+
+  private sampleCallSites(callSites: CallSite[]): CallSite[] {
+    const seenPerSurface = new Map<string, number>();
+    const sample: CallSite[] = [];
+    for (const site of callSites) {
+      const count = seenPerSurface.get(site.apiSurface) ?? 0;
+      if (count >= MAX_CALL_SITES_PER_SURFACE) continue;
+      seenPerSurface.set(site.apiSurface, count + 1);
+      sample.push(site);
+    }
+    return sample;
   }
 
   private parseResult(stdout: string, codemodPath: string): CodemodResult {

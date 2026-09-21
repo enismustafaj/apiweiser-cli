@@ -1,5 +1,3 @@
-// See docs/change-requests.md.
-
 import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
 import { CodingAgentService } from "./agent/coding-agent-service.ts";
 import { GithubModule } from "../github/index.ts";
@@ -15,9 +13,6 @@ export class ChangeRequestsModule {
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
-    // Always asks the agent, even if a codemod already exists at the
-    // registry path - a plain existence check can't tell whether it
-    // actually covers this repo's call sites (see CodingAgentService).
     const result = await this.codingAgentService.generateCodemod(input);
     if (!result.success) {
       console.error(
