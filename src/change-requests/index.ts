@@ -13,6 +13,13 @@ export class ChangeRequestsModule {
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
+    if (input.callSites.length === 0) {
+      console.log(
+        `ChangeRequestsModule: no call sites for "${input.packageName}" - skipping, nothing to migrate.`,
+      );
+      return { success: true, codemodPath: "" };
+    }
+
     const result = await this.codingAgentService.generateCodemod(input);
     if (!result.success) {
       console.error(
