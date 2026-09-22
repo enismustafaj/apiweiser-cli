@@ -30,15 +30,29 @@ function bareRepoWithCommit(content: string): string {
   return bareDir;
 }
 
-// cloneOrPull always clones into the real ~/.apiweiser-cli/repos cache
-// (same reasoning as SbomTool/RenovateTool's caches - not injectable, so
-// these tests clean up their own owner/repo-shaped entry afterward rather
-// than pointing at a fake cache dir).
+// Environments differ on git's default initial branch name (init.defaultBranch
+// - "main" locally, "master" was seen on a GitHub Actions runner) - never
+// hardcode one, always ask git what it actually used.
+function currentBranch(repoPath: string): string {
+  return execFileSync("git", ["branch", "--show-current"], { cwd: repoPath }).toString().trim();
+}
+
 after(() => {
   for (const dir of createdDirs) rmSync(dir, { recursive: true, force: true });
 });
 
+// A test that fails after cloneOrPull but before its own trailing rmSync
+// leaves a real cache entry behind - a stale `git remote origin` pointing
+// at a temp dir this test suite already deleted, which then breaks the
+// *next* run of the same test (a `pull` against a URL that no longer
+// exists). Each test using a fixed owner/repo name starts by clearing
+// its own slot first, so a previous failure can't poison this run.
+function clearCacheEntry(dirName: string): void {
+  rmSync(join(REAL_CACHE_DIR, dirName), { recursive: true, force: true });
+}
+
 test("cloneOrPull clones into owner-repo under the cache dir, keyed by URL shape", async () => {
+  clearCacheEntry("some-owner-some-repo");
   const bareDir = bareRepoWithCommit("v1");
   // A plain tmpdir path has no "owner/repo" shape, so re-clone the bare
   // repo one level deeper, under a directory structure that does.
@@ -65,6 +79,7 @@ test("cloneOrPull clones into owner-repo under the cache dir, keyed by URL shape
 });
 
 test("cloneOrPull pulls instead of re-cloning on a second call for the same URL", async () => {
+  clearCacheEntry("another-owner-another-repo");
   const bareDir = bareRepoWithCommit("v1");
   const ownerDir = join(tmpdir(), `apiweiser-cli-repo-cloner-remote-${Date.now()}`);
   mkdirSync(join(ownerDir, "another-owner"), { recursive: true });
@@ -97,12 +112,8 @@ test("cloneOrPull pulls instead of re-cloning on a second call for the same URL"
   rmSync(second, { recursive: true, force: true });
 });
 
-// Reproduces the real bug: GithubModule leaves the local clone checked out
-// on a PR feature branch (GitTool.createBranch/commitAll never switch back)
-// - a naive `git pull` on the next run would pull *that* branch instead of
-// the default one, and a later codemod would run against already-modified
-// code instead of a clean checkout.
 test("cloneOrPull resets a clone left on a feature branch back to the default branch", async () => {
+  clearCacheEntry("feature-owner-feature-repo");
   const bareDir = bareRepoWithCommit("v1");
   const ownerDir = join(tmpdir(), `apiweiser-cli-repo-cloner-remote-${Date.now()}`);
   mkdirSync(join(ownerDir, "feature-owner"), { recursive: true });
@@ -112,9 +123,8 @@ test("cloneOrPull resets a clone left on a feature branch back to the default br
 
   const cloner = new RepoCloner(FAKE_CONFIG);
   const destDir = await cloner.cloneOrPull(remoteUrl);
+  const defaultBranch = currentBranch(destDir);
 
-  // Simulate what a previous change-request run leaves behind: a checked
-  // out, committed feature branch, same as GitTool.createBranch/commitAll.
   execFileSync("git", ["checkout", "-q", "-b", "apiweiser-cli/some-pkg-2.0.0"], { cwd: destDir });
   writeFileSync(join(destDir, "codemod-output.txt"), "migrated");
   execFileSync("git", ["add", "-A"], { cwd: destDir });
@@ -127,10 +137,7 @@ test("cloneOrPull resets a clone left on a feature branch back to the default br
   const second = await cloner.cloneOrPull(remoteUrl);
 
   assert.equal(second, destDir);
-  assert.equal(
-    execFileSync("git", ["branch", "--show-current"], { cwd: second }).toString().trim(),
-    "main",
-  );
+  assert.equal(currentBranch(second), defaultBranch);
   assert.equal(existsSync(join(second, "codemod-output.txt")), false);
   assert.equal(readFileSync(join(second, "file.txt"), "utf8"), "v1");
 

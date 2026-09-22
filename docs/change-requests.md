@@ -171,7 +171,16 @@ Called by `SuggestionsModule` (see [`docs/suggestions.md`](./suggestions.md)
 § Raising change requests) whenever a proposed update's new version was
 already classified as breaking.
 
-1. `CodingAgentService.generateCodemod(input)` - always, whether or not a
+0. If `input.callSites` is empty, returns immediately -
+   `{ success: true, codemodPath: "" }` - without spawning the coding agent
+   or opening a PR at all. A package classified as breaking can still have
+   zero real call sites in this particular repo (e.g. `lint-staged`,
+   invoked only via git hooks/config, never `import`ed or `require`d as a
+   library) - there's nothing for a codemod to migrate, and a full agent
+   session just to confirm that costs real time and money for a foregone
+   conclusion.
+1. Otherwise, `CodingAgentService.generateCodemod(input)` - always, whether
+   or not a
    codemod already exists for this package + version pair (see
    `CodemodRegistry`/§ "The codemod way" above for why that's the agent's
    call to make, not a pre-check here). If it didn't succeed, logs and
