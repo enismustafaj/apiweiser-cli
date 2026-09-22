@@ -5,6 +5,7 @@ import { Scheduler as DataSourcesScheduler } from "./data-sources/changelog-look
 import { Scheduler as ReleaseAnalysisScheduler } from "./data-sources/release-analysis-scheduler.ts";
 import { DashboardModule } from "./dashboard/index.ts";
 import { DependenciesModule } from "./dependencies/index.ts";
+import { DependencyInstaller } from "./dependencies/tool/dependency-installer.ts";
 import { RepoCloner } from "./github/tool/repo-cloner.ts";
 import { Scheduler as SuggestionsScheduler } from "./suggestions/suggestions-scheduler.ts";
 
@@ -27,15 +28,19 @@ app
 
     const config = new ConfigLoader().load();
 
-    const repoPath = opts.repo
-      ? await new RepoCloner(config.github).cloneOrPull(opts.repo)
-      : opts.path!;
+    let repoPath: string;
+    if (opts.repo) {
+      repoPath = await new RepoCloner(config.github).cloneOrPull(opts.repo);
+      await new DependencyInstaller().install(repoPath);
+    } else {
+      repoPath = opts.path!;
+    }
 
     const dependencies = new DependenciesModule();
     await dependencies.scan(repoPath);
 
     new DataSourcesScheduler(DAILY_CRON).start();
-    new ReleaseAnalysisScheduler(DAILY_CRON, config.llm).start();
+    new ReleaseAnalysisScheduler(DAILY_CRON, config.llm, config.github).start();
     new SuggestionsScheduler(repoPath, DAILY_CRON, config.codingAgent, config.github).start();
   });
 

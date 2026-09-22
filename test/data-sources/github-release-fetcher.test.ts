@@ -44,3 +44,27 @@ test("fetchLatest throws on a non-ok response", async () => {
 
   await assert.rejects(() => new GitHubReleaseFetcher().fetchLatest("https://api.github.com/x"));
 });
+
+test("fetchLatest sends an Authorization header when constructed with a token", async () => {
+  let capturedHeaders: Headers | undefined;
+  globalThis.fetch = (async (_url, init) => {
+    capturedHeaders = new Headers(init?.headers);
+    return new Response(JSON.stringify([]), { status: 200 });
+  }) as typeof fetch;
+
+  await new GitHubReleaseFetcher("my-token").fetchLatest("https://api.github.com/x");
+
+  assert.equal(capturedHeaders?.get("Authorization"), "Bearer my-token");
+});
+
+test("fetchLatest omits Authorization when constructed without a token", async () => {
+  let capturedHeaders: Headers | undefined;
+  globalThis.fetch = (async (_url, init) => {
+    capturedHeaders = new Headers(init?.headers);
+    return new Response(JSON.stringify([]), { status: 200 });
+  }) as typeof fetch;
+
+  await new GitHubReleaseFetcher().fetchLatest("https://api.github.com/x");
+
+  assert.equal(capturedHeaders?.has("Authorization"), false);
+});

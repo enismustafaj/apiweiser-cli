@@ -96,3 +96,43 @@ test("cloneOrPull pulls instead of re-cloning on a second call for the same URL"
 
   rmSync(second, { recursive: true, force: true });
 });
+
+// Reproduces the real bug: GithubModule leaves the local clone checked out
+// on a PR feature branch (GitTool.createBranch/commitAll never switch back)
+// - a naive `git pull` on the next run would pull *that* branch instead of
+// the default one, and a later codemod would run against already-modified
+// code instead of a clean checkout.
+test("cloneOrPull resets a clone left on a feature branch back to the default branch", async () => {
+  const bareDir = bareRepoWithCommit("v1");
+  const ownerDir = join(tmpdir(), `apiweiser-cli-repo-cloner-remote-${Date.now()}`);
+  mkdirSync(join(ownerDir, "feature-owner"), { recursive: true });
+  const remoteUrl = join(ownerDir, "feature-owner", "feature-repo.git");
+  execFileSync("git", ["clone", "--bare", "-q", bareDir, remoteUrl]);
+  createdDirs.push(ownerDir);
+
+  const cloner = new RepoCloner(FAKE_CONFIG);
+  const destDir = await cloner.cloneOrPull(remoteUrl);
+
+  // Simulate what a previous change-request run leaves behind: a checked
+  // out, committed feature branch, same as GitTool.createBranch/commitAll.
+  execFileSync("git", ["checkout", "-q", "-b", "apiweiser-cli/some-pkg-2.0.0"], { cwd: destDir });
+  writeFileSync(join(destDir, "codemod-output.txt"), "migrated");
+  execFileSync("git", ["add", "-A"], { cwd: destDir });
+  execFileSync(
+    "git",
+    ["-c", "user.email=test@test.com", "-c", "user.name=Test", "commit", "-q", "-m", "migrate"],
+    { cwd: destDir },
+  );
+
+  const second = await cloner.cloneOrPull(remoteUrl);
+
+  assert.equal(second, destDir);
+  assert.equal(
+    execFileSync("git", ["branch", "--show-current"], { cwd: second }).toString().trim(),
+    "main",
+  );
+  assert.equal(existsSync(join(second, "codemod-output.txt")), false);
+  assert.equal(readFileSync(join(second, "file.txt"), "utf8"), "v1");
+
+  rmSync(second, { recursive: true, force: true });
+});

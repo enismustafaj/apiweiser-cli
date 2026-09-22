@@ -159,15 +159,17 @@ GitHub returns releases newest-first, so the latest release is just
 releases published at all (not an error — plenty of packages tag versions
 without ever creating a GitHub Release).
 
-**GitHub's own rate limit is a real constraint here, unaddressed for
-now**: unauthenticated requests are capped at 60/hour. A run with more
-than ~60 data sources will start failing (thrown, logged, skipped —
-`ReleaseAnalysisModule` doesn't crash) partway through, even with the
-pacing delay below, since that delay is sized for the _model's_ rate
-limit, not GitHub's. A GitHub token would raise this to 5,000/hour; not
-wired in yet — ask if you want it added (`Authorization: Bearer <token>`
-on the fetch, likely via the same config file `ConfigLoader` already
-reads).
+**GitHub's own rate limit is a real constraint here**: unauthenticated
+requests are capped at 60/hour, and a run with more than ~60 data sources
+would start failing (thrown, logged, skipped — `ReleaseAnalysisModule`
+doesn't crash) partway through, even with the pacing delay below, since
+that delay is sized for the _model's_ rate limit, not GitHub's. Fixed in
+practice: `GitHubReleaseFetcher` takes an optional token
+(`ReleaseAnalysisModule`/its `Scheduler` pass `config.github.token`
+through), sent as `Authorization: Bearer <token>` when present, which
+raises the limit to 5,000/hour. Still optional - constructing either class
+without a `GithubConfig` falls back to unauthenticated, so this module
+doesn't hard-require a token just to run in isolation.
 
 ### `BreakingChangeClassifierAgent.classify(releaseNotes)`
 

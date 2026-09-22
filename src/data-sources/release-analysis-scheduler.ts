@@ -1,14 +1,14 @@
 import { createTask } from "node-cron";
 import type { ScheduledTask } from "node-cron";
-import type { LlmConfig } from "../config/config.ts";
+import type { GithubConfig, LlmConfig } from "../config/config.ts";
 import { ReleaseAnalysisModule } from "./release-analysis.ts";
 
 export class Scheduler {
   private readonly releaseAnalysis: ReleaseAnalysisModule;
   private readonly task: ScheduledTask;
 
-  constructor(cronExpression: string, llmConfig: LlmConfig) {
-    this.releaseAnalysis = new ReleaseAnalysisModule(llmConfig);
+  constructor(cronExpression: string, llmConfig: LlmConfig, githubConfig?: GithubConfig) {
+    this.releaseAnalysis = new ReleaseAnalysisModule(llmConfig, githubConfig);
     this.task = createTask(cronExpression, () => this.run());
   }
 

@@ -29,6 +29,32 @@ re-clone from scratch). Returns the local path; everything downstream
 (`DependenciesModule`, the schedulers, `GithubModule`) only ever sees a
 `repoPath` and has no idea whether it came from `--path` or a clone.
 
+**Resetting before every pull**: found the hard way, running this against
+a real repo end-to-end - `GithubModule.openPullRequestForCodemod` leaves
+the clone checked out on a PR feature branch (`GitTool.createBranch`/
+`.commitAll` never switch back to the default branch afterward). A plain
+`git pull` on the _next_ run would pull _that_ branch, not the default one
+
+- so a second package's codemod would run against already-modified code
+  instead of a clean checkout, and a re-run for the _same_ package would
+  silently find "no changes" for the wrong reason (the migration was already
+  there, not because it was correctly detected as already covered). Fixed
+  by `GitTool.resetToDefaultBranch(repoPath)` - checks out the default
+  branch, `git reset --hard origin/<branch>`, `git clean -fd` - run before
+  every `pull()`, not just the first clone. This cache directory is
+  disposable; it's never a place to keep work.
+
+**Installing dependencies is a separate step, not `RepoCloner`'s job**:
+`SbomTool`'s `npm sbom` (see [`docs/scanner.md`](./scanner.md)) needs
+`node_modules` actually installed, which a fresh clone doesn't have - but
+that's a dependencies-module concern, not a git-cloning one.
+`DependencyInstaller.install(repoPath)` (`src/dependencies/tool/`, next to
+`SbomTool`) runs `npm install` - a no-op if there's no `package.json` -
+and `main.ts` calls it explicitly right after `cloneOrPull`, only for the
+`--repo` path. A `--path` repo is assumed to already have its own
+dependencies installed by the user; running `npm install` against it
+unasked would mutate a repo this CLI doesn't own.
+
 **Trust model, same as everywhere else in this CLI**: `ConfigLoader` only
 checks that `github.token` is _present_, never that it's actually a valid
 credential (same for `llm.apiKey`) - so a garbage or expired token breaks
@@ -93,6 +119,9 @@ Thin wrapper over the `git` CLI, one method per step:
   (see below)
 - `defaultBranch(repoPath)` — `git symbolic-ref --short refs/remotes/origin/HEAD`,
   falls back to `"main"` if that ref doesn't exist (e.g. a shallow clone)
+- `resetToDefaultBranch(repoPath)` — checks out `defaultBranch(repoPath)`,
+  `git reset --hard origin/<branch>`, `git clean -fd`. Used by `RepoCloner`
+  (above) before every `pull()`, not by the PR-opening flow itself
 - `remoteRepo(repoPath)` — `git remote get-url origin`, parsed down to
   `{ owner, repo }`. Same normalization idea as
   `NpmRegistryLookup.extractGitHubRepo` (see

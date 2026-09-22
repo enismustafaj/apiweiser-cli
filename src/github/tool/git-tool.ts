@@ -36,6 +36,19 @@ export class GitTool {
     });
   }
 
+  // A repo cloned once and reused across runs (see RepoCloner) can be left
+  // checked out on a feature branch from a previous PR attempt - pulling
+  // without resetting first would pull *that* branch, not the default one,
+  // and a later codemod would run against already-modified code instead
+  // of a clean checkout. Discards any local changes/branches; this cache
+  // is disposable, never a place to keep work.
+  async resetToDefaultBranch(repoPath: string): Promise<void> {
+    const branch = await this.defaultBranch(repoPath);
+    await execFileAsync("git", ["checkout", branch], { cwd: repoPath });
+    await execFileAsync("git", ["reset", "--hard", `origin/${branch}`], { cwd: repoPath });
+    await execFileAsync("git", ["clean", "-fd"], { cwd: repoPath });
+  }
+
   // Falls back to "main" if there's no tracked origin/HEAD ref.
   async defaultBranch(repoPath: string): Promise<string> {
     try {

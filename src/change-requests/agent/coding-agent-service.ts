@@ -137,7 +137,6 @@ with "${RESULT_MARKER}" followed by JSON matching
     }
   }
 
-  // execFileAsync's rejection carries stdout/stderr directly on the Error.
   private stdoutOf(err: unknown): string {
     if (err && typeof err === "object" && "stdout" in err) {
       return String((err as { stdout: unknown }).stdout);

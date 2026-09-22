@@ -1,4 +1,4 @@
-import type { LlmConfig } from "../config/config.ts";
+import type { GithubConfig, LlmConfig } from "../config/config.ts";
 import { db } from "../db/singleton.ts";
 import { BreakingChangeClassifierAgent } from "./agent/breaking-change-classifier.ts";
 import { DataSourcesRepository } from "./db/data-sources-repository.ts";
@@ -16,12 +16,15 @@ function delay(ms: number): Promise<void> {
 
 export class ReleaseAnalysisModule {
   private readonly classifier: BreakingChangeClassifierAgent;
-  private readonly releaseFetcher = new GitHubReleaseFetcher();
+  private readonly releaseFetcher: GitHubReleaseFetcher;
   private readonly dataSourcesRepository = new DataSourcesRepository(db);
   private readonly releaseAnalysisRepository = new ReleaseAnalysisRepository(db);
 
-  constructor(llmConfig: LlmConfig) {
+  // githubConfig is optional - falls back to unauthenticated (60/hour)
+  // rather than requiring a token just to run this module in isolation.
+  constructor(llmConfig: LlmConfig, githubConfig?: GithubConfig) {
     this.classifier = new BreakingChangeClassifierAgent(llmConfig);
+    this.releaseFetcher = new GitHubReleaseFetcher(githubConfig?.token);
   }
 
   async run(): Promise<void> {
