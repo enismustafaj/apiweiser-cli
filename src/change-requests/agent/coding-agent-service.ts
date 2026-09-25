@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import semver from "semver";
 import type { CodingAgentConfig } from "../../config/config.ts";
 import type { CallSite } from "../../dependencies/types.ts";
 import { CodemodRegistry } from "../registry/codemod-registry.ts";
-import type { ChangeRequestInput, CodemodResult } from "../types.ts";
+import type { ChangeRequestInput, ChangeRequestPackage, CodemodResult } from "../types.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +21,8 @@ export class CodingAgentService {
   }
 
   async generateCodemod(input: ChangeRequestInput): Promise<CodemodResult> {
-    const codemodPath = this.registry.pathFor(input.packageName, input.version, input.newVersion);
+    const { label, fromVersion, toVersion } = this.registryKey(input.packages);
+    const codemodPath = this.registry.pathFor(label, fromVersion, toVersion);
     const prompt = this.buildPrompt(input, codemodPath);
 
     let stdout: string;
@@ -32,7 +34,7 @@ export class CodingAgentService {
     } catch (err) {
       const errStdout = this.stdoutOf(err);
       console.error(
-        `CodingAgentService: agent process failed for "${input.packageName}". stdout:\n${errStdout}`,
+        `CodingAgentService: agent process failed for "${label}". stdout:\n${errStdout}`,
       );
       return {
         success: false,
@@ -44,6 +46,49 @@ export class CodingAgentService {
     return this.parseResult(stdout, codemodPath);
   }
 
+  // Multi-package groups are always scope-siblings grouped together because
+  // they must move together (see SuggestionsModule § Grouping scoped
+  // packages) - the shared scope (e.g. "@angular") is a natural single
+  // registry key, and the widest version span across the group is a
+  // reasonable stand-in for "this exact upgrade" when members don't all
+  // move by the exact same amount (e.g. @angular/core 5->20 but
+  // @angular/router 5->22).
+  private registryKey(packages: ChangeRequestPackage[]): {
+    label: string;
+    fromVersion: string;
+    toVersion: string;
+  } {
+    if (packages.length === 1) {
+      const pkg = packages[0]!;
+      return { label: pkg.name, fromVersion: pkg.version, toVersion: pkg.newVersion };
+    }
+
+    const first = packages[0]!.name;
+    const label = first.startsWith("@")
+      ? first.split("/")[0]!
+      : packages.map((p) => p.name).join("+");
+    return {
+      label,
+      fromVersion: this.extreme(
+        packages.map((p) => p.version),
+        "lt",
+      ),
+      toVersion: this.extreme(
+        packages.map((p) => p.newVersion),
+        "gt",
+      ),
+    };
+  }
+
+  private extreme(versions: string[], keep: "lt" | "gt"): string {
+    return versions.reduce((current, candidate) => {
+      const a = semver.coerce(candidate);
+      const b = semver.coerce(current);
+      if (!a || !b) return current;
+      return (keep === "lt" ? semver.lt(a, b) : semver.gt(a, b)) ? candidate : current;
+    });
+  }
+
   private buildPrompt(input: ChangeRequestInput, codemodPath: string): string {
     const callSitesSection = input.isDevDependency
       ? this.buildDevDependencySection(input)
@@ -51,11 +96,12 @@ export class CodingAgentService {
     // Matches whichever noun the section above actually used, so the
     // shared instructions below read naturally either way.
     const sitesRef = input.isDevDependency ? "usages you find" : "call sites above";
+    const packageNames = input.packages.map((pkg) => `"${pkg.name}"`).join(", ");
 
     return `/codemod
 
-Build a codemod package that migrates "${input.packageName}"@${input.version}
-to @${input.newVersion}, based on this changelog summary of what changed:
+Build a codemod package that migrates ${this.describePackages(input.packages)},
+based on this changelog summary of what changed:
 
 ${input.summary}
 
@@ -64,7 +110,7 @@ ${callSitesSection}
 This codemod package will be stored in a shared local registry and reused
 against other repos beyond this one, so don't special-case the transform
 to only the exact import style seen above - handle every common way
-"${input.packageName}" gets imported in real code (default import,
+${packageNames} gets imported in real code (default import,
 namespace import (\`import * as x from "..."\`), named/destructured import,
 and \`require(...)\`, whichever apply to this package), not just whichever
 one this sample happens to use.
@@ -96,6 +142,17 @@ with "${RESULT_MARKER}" followed by JSON matching
 "reason" only if success is false, explaining why you gave up.`;
   }
 
+  private describePackages(packages: ChangeRequestPackage[]): string {
+    if (packages.length === 1) {
+      const pkg = packages[0]!;
+      return `"${pkg.name}"@${pkg.version} to @${pkg.newVersion}`;
+    }
+    const list = packages
+      .map((pkg) => `- "${pkg.name}"@${pkg.version} to @${pkg.newVersion}`)
+      .join("\n");
+    return `the following packages, which must be upgraded together (they're\nscope-siblings that peer-depend on each other at matching versions):\n${list}`;
+  }
+
   private buildCallSitesSection(input: ChangeRequestInput): string {
     const sampledCallSites = this.sampleCallSites(input.callSites);
     const callSites = sampledCallSites
@@ -117,11 +174,12 @@ ${callSites}`;
   // declarations), so there's no sample list to hand over. The changelog
   // summary above plus the agent's own read of the repo is the only input.
   private buildDevDependencySection(input: ChangeRequestInput): string {
-    return `"${input.packageName}" is a devDependency - no call sites were
-tracked for it (dev tooling isn't scanned as application API usage the
-same way a runtime dependency is). Inspect this repo yourself (config
-files, package.json scripts, CI config, other code that references
-"${input.packageName}") to figure out what, if anything, actually needs to
+    const packageNames = input.packages.map((pkg) => `"${pkg.name}"`).join(", ");
+    return `${packageNames} ${input.packages.length === 1 ? "is a" : "are"} devDependency - no call
+sites were tracked for it (dev tooling isn't scanned as application API
+usage the same way a runtime dependency is). Inspect this repo yourself
+(config files, package.json scripts, CI config, other code that references
+${packageNames}) to figure out what, if anything, actually needs to
 change for this upgrade, based on the changelog summary above. If nothing
 in this repo needs to change, that's a valid outcome - report success with
 an empty transform rather than inventing a change that isn't needed.`;

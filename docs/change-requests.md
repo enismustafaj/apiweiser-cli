@@ -10,15 +10,24 @@ apply it and open a PR.
 
 ## `ChangeRequestInput`
 
-| field             | type         | notes                                                                                     |
-| ----------------- | ------------ | ----------------------------------------------------------------------------------------- |
-| `repoPath`        | `string`     | the repo being monitored, for `GithubModule`                                              |
-| `packageName`     | `string`     |                                                                                           |
-| `version`         | `string`     | current version, before the update                                                        |
-| `newVersion`      | `string`     | Renovate's proposed version                                                               |
-| `callSites`       | `CallSite[]` | from `CallSitesRepository.findForDependency`, always `[]` for a devDependency (see below) |
-| `isDevDependency` | `boolean`    | from Renovate's `depType`, see below                                                      |
-| `summary`         | `string`     | from `ChangelogSummarizer.summarize`                                                      |
+| field             | type                     | notes                                                                                 |
+| ----------------- | ------------------------ | ------------------------------------------------------------------------------------- |
+| `repoPath`        | `string`                 | the repo being monitored, for `GithubModule`                                          |
+| `packages`        | `ChangeRequestPackage[]` | usually one; more than one only for a scope-siblings group, see below                 |
+| `callSites`       | `CallSite[]`             | combined across every package, always `[]` for a devDependency group (see below)      |
+| `isDevDependency` | `boolean`                | from Renovate's `depType`, true only if every package in the group is a devDependency |
+| `summary`         | `string`                 | from `ChangelogSummarizer.summarize`, combined across every package                   |
+
+`ChangeRequestPackage` is `{ name, version, newVersion }`. Almost always a
+single-element `packages` array - more than one only when
+`SuggestionsModule.groupByScope` grouped several scope-siblings together
+because they must be bumped in the same install call (see
+[`docs/suggestions.md`](./suggestions.md) § Grouping scoped packages, and
+`DependencyBumper.bumpAll` in [`docs/github.md`](./github.md) for the real
+`ERESOLVE` this exists to avoid). Everything downstream - the codemod
+registry key, the coding agent prompt, the PR - treats a one-package
+`packages` array and a many-package one the same way, just with different
+wording where a human would notice the difference.
 
 **Why `isDevDependency` matters here**: `DependenciesModule.scan()` never
 scans devDependencies for call sites at all (see
@@ -84,6 +93,16 @@ returns that directory's path, creating it first if it's missing.
   Two different same-major updates could be entirely unrelated fixes -
   coarsening those together would point the agent at a prior entry that
   has nothing to do with the current one, not just an incomplete one.
+
+**For a multi-package group**, `CodingAgentService.registryKey` computes
+`packageName` as the shared scope (`@angular`, not a joined list of every
+member's name - groups are always scope-siblings, see
+[`docs/suggestions.md`](./suggestions.md) § Grouping scoped packages) and
+`fromVersion`/`toVersion` as the widest span across the group's members
+(the lowest current version, the highest new version) - a reasonable
+stand-in for "this exact upgrade" when members don't all move by the exact
+same amount (e.g. `@angular/core` `5→20` alongside `@angular/router`
+`5→22`).
 
 Whether an entry that already exists is actually reusable as-is isn't a
 question this class answers - there's no `has()`. That decision is left to

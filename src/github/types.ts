@@ -1,9 +1,13 @@
+export interface PullRequestPackage {
+  name: string;
+  version: string;
+  newVersion: string;
+}
+
 export interface PullRequestRequest {
   repoPath: string;
   codemodPath: string;
-  packageName: string;
-  version: string;
-  newVersion: string;
+  packages: PullRequestPackage[];
   summary: string;
 }
 

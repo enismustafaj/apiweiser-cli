@@ -12,9 +12,7 @@ function inputWithCallSites(
 ): ChangeRequestInput {
   return {
     repoPath: "/repos/a",
-    packageName: "some-pkg",
-    version: "1.0.0",
-    newVersion: "2.0.0",
+    packages: [{ name: "some-pkg", version: "1.0.0", newVersion: "2.0.0" }],
     callSites,
     isDevDependency,
     summary: "breaking release",

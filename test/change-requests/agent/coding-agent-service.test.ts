@@ -46,9 +46,7 @@ test("buildPrompt samples at most 3 call sites per API surface and says so", asy
 
   await service.generateCodemod({
     repoPath: "/repos/a",
-    packageName,
-    version: "1.0.0",
-    newVersion: "2.0.0",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites,
     isDevDependency: false,
     summary: "breaking release",
@@ -73,9 +71,7 @@ test("buildPrompt doesn't truncate or mention sampling when nothing was dropped"
 
   await service.generateCodemod({
     repoPath: "/repos/a",
-    packageName,
-    version: "1.0.0",
-    newVersion: "2.0.0",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites: [callSite("Foo.bar", 1), callSite("Foo.baz", 2)],
     isDevDependency: false,
     summary: "breaking release",
@@ -98,9 +94,7 @@ test("buildPrompt describes a devDependency upgrade without a call-site sample",
 
   await service.generateCodemod({
     repoPath: "/repos/a",
-    packageName,
-    version: "1.0.0",
-    newVersion: "2.0.0",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites: [],
     isDevDependency: true,
     summary: "breaking release",
@@ -109,6 +103,34 @@ test("buildPrompt describes a devDependency upgrade without a call-site sample",
   const codemodPath = new CodemodRegistry().pathFor(packageName, "1.0.0", "2.0.0");
   const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
 
-  assert.match(prompt, /is a devDependency - no call sites were\ntracked/);
+  assert.match(prompt, /is a devDependency - no call\nsites were tracked/);
   assert.doesNotMatch(prompt, /Call sites to migrate/);
+});
+
+// A multi-package group (see SuggestionsModule § Grouping scoped packages)
+// gets a "must be upgraded together" list instead of a single package
+// header - real bug found running the pipeline against a real repo:
+// bumping @angular/common alone failed with a peer-dependency ERESOLVE.
+test("buildPrompt describes a multi-package group that must move together", async () => {
+  const scope = `@test-scope-${randomUUID()}`;
+  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", scope));
+  const service = new CodingAgentService({ command: "node", args: ["-e", CAPTURE_SCRIPT] });
+
+  await service.generateCodemod({
+    repoPath: "/repos/a",
+    packages: [
+      { name: `${scope}/core`, version: "5.0.0", newVersion: "20.0.0" },
+      { name: `${scope}/router`, version: "5.0.0", newVersion: "22.0.0" },
+    ],
+    callSites: [callSite("Foo.bar", 1)],
+    isDevDependency: false,
+    summary: "breaking release",
+  });
+
+  const codemodPath = new CodemodRegistry().pathFor(scope, "5.0.0", "22.0.0");
+  const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
+
+  assert.match(prompt, /must be upgraded together/);
+  assert.match(prompt, new RegExp(`"${scope}/core"@5\\.0\\.0 to @20\\.0\\.0`));
+  assert.match(prompt, new RegExp(`"${scope}/router"@5\\.0\\.0 to @22\\.0\\.0`));
 });

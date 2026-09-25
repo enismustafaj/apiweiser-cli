@@ -13,13 +13,15 @@ export class ChangeRequestsModule {
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
+    const label = input.packages.map((pkg) => pkg.name).join(", ");
+
     // A devDependency legitimately has no call sites (see
     // DependenciesModule.scan) - the agent still gets a shot at it, working
     // from the changelog summary alone. For a real dependency, empty call
     // sites means there's nothing to migrate in this repo at all.
     if (input.callSites.length === 0 && !input.isDevDependency) {
       console.log(
-        `ChangeRequestsModule: no call sites for "${input.packageName}" - skipping, nothing to migrate.`,
+        `ChangeRequestsModule: no call sites for "${label}" - skipping, nothing to migrate.`,
       );
       return { success: true, codemodPath: "" };
     }
@@ -27,7 +29,7 @@ export class ChangeRequestsModule {
     const result = await this.codingAgentService.generateCodemod(input);
     if (!result.success) {
       console.error(
-        `ChangeRequestsModule: codemod generation failed for "${input.packageName}" ${input.version} -> ${input.newVersion}: ${result.reason}`,
+        `ChangeRequestsModule: codemod generation failed for "${label}": ${result.reason}`,
       );
       return result;
     }
@@ -36,19 +38,17 @@ export class ChangeRequestsModule {
       const pr = await this.github.openPullRequestForCodemod({
         repoPath: input.repoPath,
         codemodPath: result.codemodPath,
-        packageName: input.packageName,
-        version: input.version,
-        newVersion: input.newVersion,
+        packages: input.packages,
         summary: input.summary,
       });
 
       if (pr.created) {
-        console.log(`ChangeRequestsModule: opened PR for "${input.packageName}": ${pr.url}`);
+        console.log(`ChangeRequestsModule: opened PR for "${label}": ${pr.url}`);
       } else {
-        console.log(`ChangeRequestsModule: no PR opened for "${input.packageName}": ${pr.reason}`);
+        console.log(`ChangeRequestsModule: no PR opened for "${label}": ${pr.reason}`);
       }
     } catch (err) {
-      console.error(`ChangeRequestsModule: PR creation failed for "${input.packageName}":`, err);
+      console.error(`ChangeRequestsModule: PR creation failed for "${label}":`, err);
     }
 
     return result;

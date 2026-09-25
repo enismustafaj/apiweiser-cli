@@ -36,3 +36,16 @@ test("bump is a no-op for a package only listed as a peerDependency", async () =
 
   await new DependencyBumper().bump(dir, "chalk", "5.0.0");
 });
+
+// bumpAll's whole point is bundling several packages into one install call
+// (see the comment on bumpAll itself for the real ERESOLVE this fixes) -
+// same network-avoidance reasoning as above, this only exercises the case
+// where nothing is actually declared, so there's nothing to install at all.
+test("bumpAll is a no-op when none of the packages are declared", async () => {
+  const dir = repoWithPackageJson({ dependencies: { commander: "^15.0.0" } });
+
+  await new DependencyBumper().bumpAll(dir, [
+    { name: "@angular/core", newVersion: "20.0.0" },
+    { name: "@angular/router", newVersion: "20.0.0" },
+  ]);
+});

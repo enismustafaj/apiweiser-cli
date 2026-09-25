@@ -29,20 +29,33 @@ re-clone from scratch). Returns the local path; everything downstream
 (`DependenciesModule`, the schedulers, `GithubModule`) only ever sees a
 `repoPath` and has no idea whether it came from `--path` or a clone.
 
-**Resetting before every pull**: found the hard way, running this against
-a real repo end-to-end - `GithubModule.openPullRequestForCodemod` leaves
-the clone checked out on a PR feature branch (`GitTool.createBranch`/
-`.commitAll` never switch back to the default branch afterward). A plain
-`git pull` on the _next_ run would pull _that_ branch, not the default one
+**Resetting before every pull, and before every PR attempt**: found the
+hard way, running this against a real repo end-to-end -
+`GithubModule.openPullRequestForCodemod` leaves the clone checked out on a
+PR feature branch (`GitTool.createBranch`/`.commitAll` never switch back to
+the default branch on their own). Two different symptoms, two call sites
+for the same fix (`GitTool.resetToDefaultBranch(repoPath)` - checks out the
+default branch, `git reset --hard origin/<branch>`, `git clean -fd`):
 
-- so a second package's codemod would run against already-modified code
-  instead of a clean checkout, and a re-run for the _same_ package would
-  silently find "no changes" for the wrong reason (the migration was already
-  there, not because it was correctly detected as already covered). Fixed
-  by `GitTool.resetToDefaultBranch(repoPath)` - checks out the default
-  branch, `git reset --hard origin/<branch>`, `git clean -fd` - run before
-  every `pull()`, not just the first clone. This cache directory is
-  disposable; it's never a place to keep work.
+- **Across CLI runs**: a plain `git pull` on the _next_ run would pull
+  _that_ feature branch, not the default one - so a later codemod would run
+  against already-modified code instead of a clean checkout, and a re-run
+  for the _same_ package would silently find "no changes" for the wrong
+  reason (the migration was already there, not because it was correctly
+  detected as already covered). Fixed by running this before every
+  `RepoCloner.pull()`, not just the first clone.
+- **Within a single run**: `SuggestionsModule.generate()` calls
+  `openPullRequestForCodemod` once per change request against the _same_
+  `repoPath`, one after another. Without resetting first, the second call's
+  `createBranch` branches off the _first_ call's feature branch instead of
+  the base - every PR after the first one silently accumulates every prior
+  PR's changes too. Verified for real: a PR meant to be "upgrade
+  typescript" also contained an unrelated "upgrade concurrently" diff from
+  the change request raised just before it in the same run. Fixed by
+  running the same reset at the top of `openPullRequestForCodemod` itself,
+  not just at the start of a fresh clone.
+
+This cache directory is disposable; it's never a place to keep work.
 
 **Installing dependencies is a separate step, not `RepoCloner`'s job**:
 `SbomTool`'s `npm sbom` (see [`docs/scanner.md`](./scanner.md)) needs
@@ -71,7 +84,7 @@ credential (same for `llm.apiKey`) - so a garbage or expired token breaks
 break `push()`/PR creation today. No fallback to an unauthenticated clone
 attempt; a token the user configured is trusted to be real.
 
-## `DependencyBumper.bump(repoPath, packageName, newVersion)`
+## `DependencyBumper.bump(repoPath, packageName, newVersion)` / `.bumpAll(repoPath, packages)`
 
 Found missing the hard way: applying the chalk v4→v5 codemod to a real
 dependent produced a PR that migrated call-site syntax to v5's API but
@@ -81,7 +94,7 @@ didn't even compile. `CodemodApplier`'s transform only touches source
 files (an AST-based tool has no business editing package manifests or
 running installs), so this is a separate, deterministic step:
 
-1. Skips entirely if `packageName` isn't declared in `dependencies` or
+1. Skips a package entirely if it isn't declared in `dependencies` or
    `devDependencies` in the target repo's `package.json` - nothing to
    bump (also skips `peerDependencies`; bumping a peer range without the
    consuming project's own say-so is a bigger call than this pipeline
@@ -94,8 +107,22 @@ running installs), so this is a separate, deterministic step:
    the lockfile together, correctly, rather than hand-editing JSON and
    hoping the lockfile stays consistent.
 
-Not covered by an automated test beyond the "not a direct dependency, stay
-a no-op" guard - the actual install is network-bound, same reasoning as
+`bump()` is `bumpAll()` for a single package. `bumpAll()` is what
+`GithubModule` actually calls - all declared packages in the group are
+installed **in one command per section** (one call for the
+`dependencies` members, a separate one for any `devDependencies`
+members), not one call per package. Found the hard way, running the full
+pipeline against a real repo: `npm install @angular/common@20.0.0` alone
+fails with a peer-dependency `ERESOLVE`, because `@angular/common@20`
+peer-depends on `@angular/core@20` - and the repo's `@angular/core` was
+still on `5.x`, since nothing had bumped it yet. Giving npm every
+scope-sibling in the same `npm install` call lets it resolve the whole
+family's peer graph together instead of failing on the first package one
+at a time. See [`docs/suggestions.md`](./suggestions.md) § Grouping scoped
+packages for where these groups come from.
+
+Not covered by an automated test beyond the "nothing declared, stay a
+no-op" guard - the actual install is network-bound, same reasoning as
 `RenovateTool` (see [`docs/suggestions.md`](./suggestions.md)). Verified in
 practice: running this against the `ts-loader` PR above (bump to
 `chalk@^5.0.0`, `yarn install`) turned a non-compiling PR into one that
@@ -163,27 +190,39 @@ the created PR's `html_url`.
 
 ## `GithubModule.openPullRequestForCodemod(request)`
 
-1. `DependencyBumper.bump(request.repoPath, request.packageName, request.newVersion)`.
-2. `CodemodApplier.apply(request.codemodPath, request.repoPath)`.
-3. `GitTool.hasChanges(request.repoPath)` — if false, returns
+`request.packages` is one or more packages - more than one only for a
+scope-siblings group (see [`docs/suggestions.md`](./suggestions.md) §
+Grouping scoped packages), everything below still produces exactly **one**
+PR either way:
+
+1. `GitTool.resetToDefaultBranch(request.repoPath)` - see § Resetting
+   before every pull, and before every PR attempt above. Runs first,
+   before anything else touches the working tree.
+2. `DependencyBumper.bumpAll(request.repoPath, request.packages)`.
+3. `CodemodApplier.apply(request.codemodPath, request.repoPath)`.
+4. `GitTool.hasChanges(request.repoPath)` — if false, returns
    `{ created: false, reason: "codemod produced no changes" }` without
    touching git at all. Not a failure: a codemod's real call sites might
    only use API surface that didn't actually change (verified in practice -
    running the chalk v4→v5 codemod against a real dependent produced zero
    edits, because that repo only used style methods chalk v5 left alone).
-4. `GitTool.remoteRepo(...)` — if `origin` isn't a GitHub remote, returns
+5. `GitTool.remoteRepo(...)` — if `origin` isn't a GitHub remote, returns
    `{ created: false, reason: "origin remote isn't a GitHub repo" }`.
-5. Branches as `apiweiser-cli/<packageName>-<newVersion>` (sanitized),
-   commits everything with `Migrate <packageName> <version> -> <newVersion>`,
-   pushes it, then opens the PR - title is the same migration summary, body
-   is the changelog summary plus a pointer to the codemod package's local
-   path (see [`docs/change-requests.md`](./change-requests.md) §
-   `CodemodRegistry`).
+6. Branches as `apiweiser-cli/<label>-<newVersion>` (sanitized) and commits
+   with `Migrate <label> from <version> to <newVersion>` - for a single
+   package `<label>` is its name; for a group it's the shared scope (e.g.
+   `@angular`), since multi-package groups are always scope-siblings by
+   construction. Pushes, then opens the PR - title is the same message,
+   body lists every package's `version -> newVersion` plus the combined
+   changelog summary and a pointer to the codemod package's local path (see
+   [`docs/change-requests.md`](./change-requests.md) § `CodemodRegistry`).
 
 Returns `{ created: true, url }` on success - and, in that same case,
 records the PR via `PullRequestsRepository.insert()` (see
-[`docs/database.md`](./database.md) § `pull_requests`) before returning, so
-every opened PR is queryable afterward without scraping GitHub itself.
+[`docs/database.md`](./database.md) § `pull_requests`), once per package in
+the group, all pointing at the same `url` - `pull_requests` stays one row
+per `(PR, package)`, not one row per PR, so a query for any single package
+in a group still finds it.
 
 ## Who calls this
 
