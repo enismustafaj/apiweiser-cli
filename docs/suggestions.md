@@ -19,6 +19,7 @@ npx --yes renovate
   --require-config=optional     # don't require a renovate.json to exist
   --dependency-dashboard=false  # skip the dashboard issue workflow
   --osv-vulnerability-alerts=true  # check OSV.dev for known vulnerabilities too
+  --enabled-managers=npm        # only package.json dependencies
   --report-type=file
   --report-path=<cache file>
 ```
@@ -31,6 +32,17 @@ come from the git host (e.g. GitHub's Dependabot advisories), which
 requires a host token - not available on `--platform=local`, which has no
 host at all. OSV.dev needs no host auth, so enabling this is what lets a
 vulnerable dependency surface as a proposed update here at all.
+
+**Why `--enabled-managers=npm`**: found the hard way, running this against
+a real repo - without it, Renovate also proposes updates for things this
+CLI has no business touching, like the Node.js runtime version itself
+(detected from `.nvmrc`/`engines.node`, `datasource: "node-version"`).
+That "dependency" isn't a `dependencies`/`devDependencies` entry at all, so
+Renovate's own report gives it no `depType` - and
+`SuggestionsRepository.insert()` crashed trying to bind that missing value
+into a `NOT NULL` column. Restricting to the `npm` manager keeps Renovate
+to exactly what this pipeline is built to handle: `package.json`
+dependencies.
 
 **Why the report file, not stdout/logs**: `--report-type=file` is Renovate's
 own stable, structured output — the same data other Renovate integrations
@@ -105,35 +117,55 @@ only run queries against `db.connection`.
 
 Thin orchestrator, same shape as `DependenciesModule`: `generate(repoPath)`
 runs `RenovateTool`, inserts the resulting updates via
-`SuggestionsRepository`, then raises a change request for each one that
-turns out to be breaking (below), before returning the updates.
+`SuggestionsRepository`, then raises a change request for each update
+that's either a real dependency with call sites or a devDependency (below),
+before returning the updates.
 
-### Raising change requests for breaking updates
+### Raising change requests
 
-For each update Renovate proposes, checks whether its `newVersion` was
-already classified by `ReleaseAnalysisModule` (see
-[`docs/data-sources.md`](./data-sources.md) § Release analysis) —
-`ReleaseAnalysisRepository.findResult(dependency, newVersion)` looks up
-`release_analysis_results` by package name and matches `release_tag`
-against both `newVersion` and `v${newVersion}` (GitHub tags are often
-`v`-prefixed, Renovate's version isn't). No match (not classified yet, or
-no `data_sources` entry at all) means nothing happens — silently, since an
-update simply not yet analyzed isn't an error.
+No separate breaking/not-breaking gate anymore - see
+[`docs/data-sources.md`](./data-sources.md) § Changelog summarization for
+why the old classify-the-latest-release-once-a-day design was replaced
+(it measurably missed real breaking changes on two separate test repos).
+For each update Renovate proposes:
 
-If a match says `isBreaking`, raises a change request via
-`ChangeRequestsModule.create` (see [`docs/change-requests.md`](./change-requests.md)),
-passing `repoPath` along with the package's current call sites
-(`CallSitesRepository.findForDependency`) — `repoPath` is what
-`GithubModule` (see [`docs/github.md`](./github.md)) applies a successful
-codemod to and opens a PR against. Awaited, one at a time (not
-`Promise.all`'d) — each one spawns a full coding agent session, and running
-several concurrently would be its own rate-limit/cost problem, same
-reasoning as `ReleaseAnalysisModule`'s pacing. Wrapped in try/catch and
-logged on failure, same resilience pattern as everywhere else in this CLI,
-so one failed codemod attempt doesn't crash the rest of `generate()`. Needs
-`codingAgent` and `github` filled in in config (see
-[`docs/config.md`](./config.md)) — `SuggestionsModule`'s constructor takes
-both directly.
+1. `update.depType === "devDependencies"` decides whether call sites are
+   even checked. devDependencies are never scanned for call sites at all
+   (see [`docs/scanner.md`](./scanner.md) § devDependencies aren't scanned
+   at all) - `callSitesRepository.findForDependency` would always come
+   back empty for one, so this skips straight to step 2 with `callSites:
+[]` rather than pretending to check. For a real dependency,
+   `CallSitesRepository.findForDependency(repoPath, update.dependency)`
+   runs as before - empty means nothing for a codemod to migrate, so this
+   returns immediately without ever fetching a changelog or summarizing
+   anything. Checked here, not just inside `ChangeRequestsModule.create`
+   (which has the same check for defense in depth, minus the
+   devDependency exception - see [`docs/change-requests.md`](./change-requests.md)),
+   specifically to avoid the wasted network/LLM calls, not just the wasted
+   agent session.
+2. `ChangelogSummarizer.summarize(dependency, currentVersion, newVersion)`
+   (see [`docs/data-sources.md`](./data-sources.md)) - fetches and
+   summarizes the real changelog for the exact range Renovate proposed. A
+   `null` result (no known changelog source, or nothing in range) also
+   returns without raising anything.
+3. Otherwise, raises a change request via `ChangeRequestsModule.create`
+   (see [`docs/change-requests.md`](./change-requests.md)), passing
+   `repoPath`, the call sites (`[]` for a devDependency), whether it's a
+   devDependency, and the summary - `repoPath` is what
+   `GithubModule` (see [`docs/github.md`](./github.md)) applies a
+   successful codemod to and opens a PR against. The coding agent itself
+   decides whether anything actually needs to change (same resilience
+   path as any other suggestion that turns out to need no code changes,
+   e.g. a repo that doesn't call a package's API directly - see
+   [`docs/change-requests.md`](./change-requests.md)).
+
+Awaited, one at a time (not `Promise.all`'d) — each one can spawn a full
+coding agent session, and running several concurrently would be its own
+rate-limit/cost problem. Wrapped in try/catch and logged on failure, same
+resilience pattern as everywhere else in this CLI, so one failed attempt
+doesn't crash the rest of `generate()`. Needs `llm`, `codingAgent`, and
+`github` filled in in config (see [`docs/config.md`](./config.md)) -
+`SuggestionsModule`'s constructor takes all three directly.
 
 ## `Scheduler`
 
@@ -150,8 +182,7 @@ whatever) doesn't kill the whole schedule.
 
 Not behind a flag - `main.ts` always constructs and starts this
 `Scheduler` too, with a fixed once-a-day cron (`"0 0 * * *"`; the class
-itself still takes any expression, see above), last among the three
-schedulers it starts (after the changelog-lookup and release-analysis
-ones - see [`docs/data-sources.md`](./data-sources.md)). `--path` always
-runs `DependenciesModule.scan` once first; `SuggestionsScheduler` is
+itself still takes any expression, see above), after the changelog-lookup
+scheduler (see [`docs/data-sources.md`](./data-sources.md)). `--path`
+always runs `DependenciesModule.scan` once first; `SuggestionsScheduler` is
 constructed with that same `repoPath`.

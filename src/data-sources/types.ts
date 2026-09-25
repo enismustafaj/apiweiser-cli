@@ -17,10 +17,3 @@ export interface LatestRelease {
   tagName: string;
   body: string;
 }
-
-export interface BreakingChangeClassification {
-  isBreaking: boolean;
-  summary: string;
-}
-
-export type ReleaseAnalysisRunStatus = "running" | "completed" | "failed";

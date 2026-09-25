@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import { ReleaseAnalysisRepository } from "../data-sources/db/release-analysis-repository.ts";
+import { ChangelogSummarizer } from "../data-sources/changelog-summarizer.ts";
 import { ChangeRequestsModule } from "../change-requests/index.ts";
-import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
+import type { CodingAgentConfig, GithubConfig, LlmConfig } from "../config/config.ts";
 import { CallSitesRepository } from "../dependencies/db/call-sites-repository.ts";
 import { db } from "../db/singleton.ts";
 import { SuggestionsRepository } from "./db/suggestions-repository.ts";
@@ -11,44 +11,59 @@ import type { RenovateUpdate } from "./types.ts";
 export class SuggestionsModule {
   private readonly renovateTool = new RenovateTool();
   private readonly suggestionsRepository = new SuggestionsRepository(db);
-  private readonly releaseAnalysisRepository = new ReleaseAnalysisRepository(db);
   private readonly callSitesRepository = new CallSitesRepository(db);
+  private readonly changelogSummarizer: ChangelogSummarizer;
   private readonly changeRequests: ChangeRequestsModule;
 
-  constructor(codingAgentConfig: CodingAgentConfig, githubConfig: GithubConfig) {
+  constructor(
+    llmConfig: LlmConfig,
+    codingAgentConfig: CodingAgentConfig,
+    githubConfig: GithubConfig,
+  ) {
+    this.changelogSummarizer = new ChangelogSummarizer(llmConfig, githubConfig);
     this.changeRequests = new ChangeRequestsModule(codingAgentConfig, githubConfig);
   }
 
   async generate(repoPath: string): Promise<RenovateUpdate[]> {
-    // Must match whatever DependenciesModule.scan resolved it to.
     const absoluteRepoPath = resolve(repoPath);
 
     const updates = await this.renovateTool.run(absoluteRepoPath);
     this.suggestionsRepository.insert(absoluteRepoPath, updates);
 
     for (const update of updates) {
-      await this.raiseChangeRequestIfBreaking(absoluteRepoPath, update);
+      await this.raiseChangeRequest(absoluteRepoPath, update);
     }
 
     return updates;
   }
 
-  private async raiseChangeRequestIfBreaking(
-    repoPath: string,
-    update: RenovateUpdate,
-  ): Promise<void> {
-    const result = this.releaseAnalysisRepository.findResult(update.dependency, update.newVersion);
-    if (!result?.isBreaking) return;
+  private async raiseChangeRequest(repoPath: string, update: RenovateUpdate): Promise<void> {
+    // devDependencies are never scanned for call sites (see
+    // DependenciesModule.scan) - real API-surface migration doesn't apply
+    // to dev tooling the same way, so the coding agent works from the
+    // changelog summary alone instead of requiring call sites first.
+    const isDevDependency = update.depType === "devDependencies";
+    const callSites = isDevDependency
+      ? []
+      : this.callSitesRepository.findForDependency(repoPath, update.dependency);
+    if (!isDevDependency && callSites.length === 0) return;
 
     try {
+      const summary = await this.changelogSummarizer.summarize(
+        update.dependency,
+        update.currentVersion,
+        update.newVersion,
+      );
+      if (!summary) return;
+
       await this.changeRequests.create({
         repoPath,
         packageName: update.dependency,
         version: update.currentVersion,
         newVersion: update.newVersion,
-        callSites: this.callSitesRepository.findForDependency(repoPath, update.dependency),
-        isBreaking: result.isBreaking,
-        summary: result.summary,
+        callSites,
+        isDevDependency,
+        summary,
       });
     } catch (err) {
       console.error(`SuggestionsModule: change request failed for "${update.dependency}":`, err);

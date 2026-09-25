@@ -217,7 +217,7 @@ built:
 - [`docs/database.md`](docs/database.md) — schema, the shared sqlite
   singleton, FK enforcement
 - [`docs/data-sources.md`](docs/data-sources.md) — the changelog-source
-  lookup queue, and the daily release-analysis/breaking-change classifier
+  lookup queue, and per-suggestion changelog summarization
 - [`docs/suggestions.md`](docs/suggestions.md) — the Renovate-backed
   version-suggestion module and its cron scheduler
 - [`docs/change-requests.md`](docs/change-requests.md) — asking a coding

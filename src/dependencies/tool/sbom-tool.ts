@@ -45,6 +45,10 @@ export class SbomTool {
       name: component.name,
       currentVersion: component.version,
       type: directRefs.has(component["bom-ref"]) ? "direct" : "transitive",
+      isDevDependency:
+        component.properties?.some(
+          (prop) => prop.name === "cdx:npm:package:development" && prop.value === "true",
+        ) ?? false,
     }));
   }
 }

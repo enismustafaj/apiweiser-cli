@@ -3,13 +3,13 @@
 // target repo actually uses.
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { detectPackageManager } from "../../package-manager.ts";
 
 const execFileAsync = promisify(execFile);
 
-type PackageManager = "npm" | "yarn" | "pnpm";
 type DependencySection = "dependencies" | "devDependencies";
 
 export class DependencyBumper {
@@ -17,7 +17,7 @@ export class DependencyBumper {
     const section = this.declaredIn(repoPath, packageName);
     if (!section) return;
 
-    const manager = this.detectPackageManager(repoPath);
+    const manager = detectPackageManager(repoPath);
     const spec = `${packageName}@${newVersion}`;
     const devFlag = section === "devDependencies";
 
@@ -47,11 +47,5 @@ export class DependencyBumper {
     if (pkg.dependencies?.[packageName]) return "dependencies";
     if (pkg.devDependencies?.[packageName]) return "devDependencies";
     return null;
-  }
-
-  private detectPackageManager(repoPath: string): PackageManager {
-    if (existsSync(join(repoPath, "pnpm-lock.yaml"))) return "pnpm";
-    if (existsSync(join(repoPath, "yarn.lock"))) return "yarn";
-    return "npm";
   }
 }

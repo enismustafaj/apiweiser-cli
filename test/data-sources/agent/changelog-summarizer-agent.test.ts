@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
-import { BreakingChangeClassifierAgent } from "../../../src/data-sources/agent/breaking-change-classifier.ts";
+import { ChangelogSummarizerAgent } from "../../../src/data-sources/agent/changelog-summarizer-agent.ts";
 
 let server: Server;
 let baseUrl: string;
@@ -28,8 +28,8 @@ after(() => {
   server.close();
 });
 
-function agent(): BreakingChangeClassifierAgent {
-  return new BreakingChangeClassifierAgent({ apiKey: "test", url: baseUrl, model: "test-model" });
+function agent(): ChangelogSummarizerAgent {
+  return new ChangelogSummarizerAgent({ apiKey: "test", url: baseUrl, model: "test-model" });
 }
 
 function completion(message: Record<string, unknown>, finishReason = "stop") {
@@ -44,35 +44,33 @@ function completion(message: Record<string, unknown>, finishReason = "stop") {
   };
 }
 
-test("classify parses the structured JSON response", async () => {
-  nextResponseBody = completion({
-    content: JSON.stringify({ isBreaking: true, summary: "removed the callback API" }),
-  });
+test("summarize returns the plain text response", async () => {
+  nextResponseBody = completion({ content: "Removed the callback API in favor of promises." });
 
-  const result = await agent().classify("BREAKING CHANGE: removed callbacks");
+  const result = await agent().summarize("BREAKING CHANGE: removed callbacks");
 
-  assert.deepEqual(result, { isBreaking: true, summary: "removed the callback API" });
+  assert.equal(result, "Removed the callback API in favor of promises.");
 });
 
-test("classify throws when the model refuses", async () => {
+test("summarize throws when the model refuses", async () => {
   nextResponseBody = completion({ content: null, refusal: "cannot help with that" });
 
-  await assert.rejects(() => agent().classify("some release notes"));
+  await assert.rejects(() => agent().summarize("some release notes"));
 });
 
-test("classify throws on a content_filter finish reason", async () => {
+test("summarize throws on a content_filter finish reason", async () => {
   nextResponseBody = completion({ content: null }, "content_filter");
 
-  await assert.rejects(() => agent().classify("some release notes"));
+  await assert.rejects(() => agent().summarize("some release notes"));
 });
 
-test("classify throws on an empty response", async () => {
+test("summarize throws on an empty response", async () => {
   nextResponseBody = completion({ content: "" });
 
-  await assert.rejects(() => agent().classify("some release notes"));
+  await assert.rejects(() => agent().summarize("some release notes"));
 });
 
-test("classify throws when there are no choices at all", async () => {
+test("summarize throws when there are no choices at all", async () => {
   nextResponseBody = {
     id: "1",
     object: "chat.completion",
@@ -81,5 +79,5 @@ test("classify throws when there are no choices at all", async () => {
     choices: [],
   };
 
-  await assert.rejects(() => agent().classify("some release notes"));
+  await assert.rejects(() => agent().summarize("some release notes"));
 });

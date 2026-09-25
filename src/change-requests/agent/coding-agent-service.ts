@@ -45,26 +45,21 @@ export class CodingAgentService {
   }
 
   private buildPrompt(input: ChangeRequestInput, codemodPath: string): string {
-    const sampledCallSites = this.sampleCallSites(input.callSites);
-    const callSites = sampledCallSites
-      .map((site) => `- ${site.file}:${site.line} — ${site.snippet} (${site.apiSurface})`)
-      .join("\n");
-    const truncated = sampledCallSites.length < input.callSites.length;
+    const callSitesSection = input.isDevDependency
+      ? this.buildDevDependencySection(input)
+      : this.buildCallSitesSection(input);
+    // Matches whichever noun the section above actually used, so the
+    // shared instructions below read naturally either way.
+    const sitesRef = input.isDevDependency ? "usages you find" : "call sites above";
 
     return `/codemod
 
-Build a codemod package that migrates all call sites below from
-"${input.packageName}"@${input.version} to @${input.newVersion}, based on
-this changelog summary of what changed:
+Build a codemod package that migrates "${input.packageName}"@${input.version}
+to @${input.newVersion}, based on this changelog summary of what changed:
 
 ${input.summary}
 
-Call sites to migrate${
-      truncated
-        ? ` (showing ${sampledCallSites.length} of ${input.callSites.length} total, up to ${MAX_CALL_SITES_PER_SURFACE} per distinct API surface - inspect the surrounding files yourself for the rest)`
-        : " (also inspect the surrounding files yourself - this list may not be exhaustive)"
-    }:
-${callSites}
+${callSitesSection}
 
 This codemod package will be stored in a shared local registry and reused
 against other repos beyond this one, so don't special-case the transform
@@ -72,25 +67,25 @@ to only the exact import style seen above - handle every common way
 "${input.packageName}" gets imported in real code (default import,
 namespace import (\`import * as x from "..."\`), named/destructured import,
 and \`require(...)\`, whichever apply to this package), not just whichever
-one this call site sample happens to use.
+one this sample happens to use.
 
 The current working directory ("${codemodPath}") is this exact upgrade's
 slot in a shared local registry - check first whether a codemod package
 already exists here (e.g. a \`codemod.yaml\`) from a previous repo that hit
-the same upgrade. If one exists, inspect it against the call sites above:
-if it already covers them, verify it still passes and stop there; if it
-doesn't (e.g. it only handles a different import style, or missed part of
-the API surface), extend it rather than starting over. If nothing exists
-yet, scaffold fresh here - \`codemod init . --no-interactive\`.
+the same upgrade. If one exists, inspect it against the ${sitesRef}: if it
+already covers them, verify it still passes and stop there; if it doesn't
+(e.g. it only handles a different import style, or missed part of the API
+surface), extend it rather than starting over. If nothing exists yet,
+scaffold fresh here - \`codemod init . --no-interactive\`.
 
 If extending: do not delete or modify any existing fixture under tests/ -
 those are what keep this codemod correct for every repo that has already
 used it, not just this one. Only add new fixtures alongside them.
 
 Either way, use the codemod skill's normal workflow: implement (or extend)
-an AST-based transform, add fixtures from the call sites above, and run
-the codemod's *entire* test suite - every existing fixture plus the new
-ones, via \`run_jssg_tests\`/\`validate_codemod_package\`, not a filtered or
+an AST-based transform, add fixtures from the ${sitesRef}, and run the
+codemod's *entire* test suite - every existing fixture plus the new ones,
+via \`run_jssg_tests\`/\`validate_codemod_package\`, not a filtered or
 partial run - iterating until all of it is green. Do not stop until it is,
 and do not report success unless the full suite (not just the fixtures you
 added) passed.
@@ -99,6 +94,37 @@ When finished, print exactly one line, with nothing else after it, starting
 with "${RESULT_MARKER}" followed by JSON matching
 { "success": boolean, "codemodPath": string, "reason"?: string } -
 "reason" only if success is false, explaining why you gave up.`;
+  }
+
+  private buildCallSitesSection(input: ChangeRequestInput): string {
+    const sampledCallSites = this.sampleCallSites(input.callSites);
+    const callSites = sampledCallSites
+      .map((site) => `- ${site.file}:${site.line} — ${site.snippet} (${site.apiSurface})`)
+      .join("\n");
+    const truncated = sampledCallSites.length < input.callSites.length;
+
+    return `Call sites to migrate${
+      truncated
+        ? ` (showing ${sampledCallSites.length} of ${input.callSites.length} total, up to ${MAX_CALL_SITES_PER_SURFACE} per distinct API surface - inspect the surrounding files yourself for the rest)`
+        : " (also inspect the surrounding files yourself - this list may not be exhaustive)"
+    }:
+${callSites}`;
+  }
+
+  // devDependencies are never scanned for call sites (see
+  // DependenciesModule.scan) - real usage doesn't show up the same way for
+  // dev tooling (config files, scripts, other devDependencies' own type
+  // declarations), so there's no sample list to hand over. The changelog
+  // summary above plus the agent's own read of the repo is the only input.
+  private buildDevDependencySection(input: ChangeRequestInput): string {
+    return `"${input.packageName}" is a devDependency - no call sites were
+tracked for it (dev tooling isn't scanned as application API usage the
+same way a runtime dependency is). Inspect this repo yourself (config
+files, package.json scripts, CI config, other code that references
+"${input.packageName}") to figure out what, if anything, actually needs to
+change for this upgrade, based on the changelog summary above. If nothing
+in this repo needs to change, that's a valid outcome - report success with
+an empty transform rather than inventing a change that isn't needed.`;
   }
 
   private sampleCallSites(callSites: CallSite[]): CallSite[] {

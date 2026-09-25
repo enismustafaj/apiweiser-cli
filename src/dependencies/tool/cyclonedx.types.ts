@@ -2,6 +2,7 @@ export interface CycloneDxComponent {
   "bom-ref": string;
   name: string;
   version: string;
+  properties?: { name: string; value: string }[];
 }
 
 export interface CycloneDxDocument {

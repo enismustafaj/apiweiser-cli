@@ -8,11 +8,16 @@ const DEFAULT_DB_PATH = join(homedir(), ".apiweiser-cli", "db.sqlite");
 export class Database {
   private readonly db: DatabaseSync;
 
-  constructor(dbPath: string = DEFAULT_DB_PATH) {
+  // `migrate: false` is for `dashboard`, a read-only view onto data `scan`
+  // already wrote - it has no business creating tables, and doing so
+  // anyway is what let it race `scan`'s own migrate() on simultaneous
+  // startup ("database is locked").
+  constructor(dbPath: string = DEFAULT_DB_PATH, { migrate = true }: { migrate?: boolean } = {}) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec("PRAGMA foreign_keys = ON");
-    this.migrate();
+    if (migrate) this.migrate();
   }
 
   private migrate(): void {
@@ -52,27 +57,6 @@ export class Database {
       CREATE TABLE IF NOT EXISTS pending_changelog_lookups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         package_id INTEGER NOT NULL UNIQUE REFERENCES packages(id),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS release_analysis_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        ended_at TEXT,
-        status TEXT NOT NULL DEFAULT 'running'
-      )
-    `);
-
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS release_analysis_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id INTEGER NOT NULL REFERENCES release_analysis_runs(id),
-        package_id INTEGER NOT NULL REFERENCES packages(id),
-        release_tag TEXT NOT NULL,
-        is_breaking INTEGER NOT NULL,
-        summary TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);

@@ -5,12 +5,13 @@ derives where to fetch their release changelog from, using npm registry
 metadata only (no LLM). Lookups are queued and drained in rate-limit-sized
 batches on a schedule, not done inline during a scan.
 
-This module covers two related but independent pipelines: **finding**
-where a package's changelog lives (`NpmRegistryLookup` → `data_sources`,
-no LLM), and **classifying** what its latest release actually says
-(`GitHubReleaseFetcher` + `BreakingChangeClassifierAgent` → an LLM). The
-sections below cover the first pipeline; see
-[§ Release analysis](#release-analysis) for the second.
+This module covers two related but independent pieces: **finding** where a
+package's changelog lives (`NpmRegistryLookup` → `data_sources`, no LLM),
+and the tools `SuggestionsModule` uses to **summarize** what actually
+changed for a specific proposed upgrade (`GitHubReleaseFetcher` +
+`ChangelogSummarizerAgent` → an LLM, invoked inline per suggestion, not as
+a separate batch job). The sections below cover the first; see
+[§ Changelog summarization](#changelog-summarization) for the second.
 
 ## Why a queue instead of looking up inline
 
@@ -54,6 +55,14 @@ doesn't change between versions, only the version does.
 `https://api.github.com/repos/<owner>/<repo>/releases` — not the HTML
 releases page, because the API endpoint is actually fetchable JSON (tag,
 body, `published_at` per release) rather than a page meant for a browser.
+
+**A trailing `#<subdirectory>`** (npm's shorthand for `repository.directory`,
+for a package published from a subfolder of a larger repo - found via a
+real one, `ext`, whose `repository.url` is
+`git+https://github.com/medikoo/es5-ext.git#ext`) gets stripped before the
+`.git` suffix is stripped, not after - `.git$` doesn't match
+`.git#ext`, so doing it in the other order left `ext` swept into the repo
+name (`medikoo/es5-ext.git#ext`), a URL that always 404s.
 
 **Verified against 769 real dependencies** (a full scan of
 [sindresorhus/got](https://github.com/sindresorhus/got)): 768 resolved
@@ -145,87 +154,94 @@ expression, see above). The queue itself is global (keyed by package name,
 not tied to any one repo) - `--path` is required by the CLI regardless,
 but draining this particular queue doesn't depend on what was scanned.
 
-## Release analysis
+## Changelog summarization
 
-A second, independent pipeline: once a day, walk every known
-`data_sources` entry, fetch its package's **latest** GitHub release, and
-classify whether that release contains breaking changes.
+There's no longer a separate daily "is this breaking?" batch job. That
+design (walk every known package once a day, classify its **latest**
+release in isolation, gate change requests on the result) was tried and
+measurably failed on two real repos: it only ever looks at the single
+newest release's own notes, so a multi-major jump (`react 16→19`,
+`next 10→16`, `styled-components 5→6`) came back "not breaking" every
+time, because the actual breaking change happened in an intermediate
+major whose notes the latest release doesn't recap. Replaced with
+`ChangelogSummarizer`, called inline by `SuggestionsModule` (see
+[`docs/suggestions.md`](./suggestions.md)) once per real suggestion,
+targeting the exact version range Renovate proposed - not a batch job, no
+`release_analysis_runs`/`release_analysis_results` tables, no separate
+scheduler.
 
-### `GitHubReleaseFetcher.fetchLatest(releasesUrl)`
+### `GitHubReleaseFetcher.fetchRange(releasesUrl, fromVersion, toVersion)`
 
-`GET` the releases API endpoint a `data_sources` row already points to.
-GitHub returns releases newest-first, so the latest release is just
-`releases[0]`. Returns `{ tagName, body }`, or `null` if the repo has no
-releases published at all (not an error — plenty of packages tag versions
-without ever creating a GitHub Release).
+`GET` the releases API endpoint a `data_sources` row already points to,
+and return every release strictly after `fromVersion` and up to and
+including `toVersion`, oldest first. This is the actual fix: a package's
+single latest release can look harmless while an earlier major in the
+same range genuinely broke something, so the full range gets concatenated
+and summarized together, not just whatever's currently newest.
+
+Tags aren't always plain `vX.Y.Z` - real ones seen in practice include
+scoped/monorepo-style tags like `styled-components@6.5.3` and
+`spectacle@10.2.3`. `semver.coerce()` extracts the first `x.y.z` pattern
+found in each tag for comparison; a tag that doesn't coerce to anything is
+silently skipped rather than treated as an error.
 
 **GitHub's own rate limit is a real constraint here**: unauthenticated
-requests are capped at 60/hour, and a run with more than ~60 data sources
-would start failing (thrown, logged, skipped — `ReleaseAnalysisModule`
-doesn't crash) partway through, even with the pacing delay below, since
-that delay is sized for the _model's_ rate limit, not GitHub's. Fixed in
-practice: `GitHubReleaseFetcher` takes an optional token
-(`ReleaseAnalysisModule`/its `Scheduler` pass `config.github.token`
-through), sent as `Authorization: Bearer <token>` when present, which
-raises the limit to 5,000/hour. Still optional - constructing either class
-without a `GithubConfig` falls back to unauthenticated, so this module
-doesn't hard-require a token just to run in isolation.
+requests are capped at 60/hour. `GitHubReleaseFetcher` takes an optional
+token (`ChangelogSummarizer` passes `config.github.token` through), sent
+as `Authorization: Bearer <token>` when present, which raises the limit to
+5,000/hour. Still optional - constructing it without a `GithubConfig`
+falls back to unauthenticated, so this class doesn't hard-require a token
+just to run in isolation.
 
-### `BreakingChangeClassifierAgent.classify(releaseNotes)`
+### `ChangelogSummarizerAgent.summarize(releaseNotes)`
 
-Lives in `src/data-sources/agent/` (this module owns it, unlike
-`NpmRegistryLookup`'s pipeline, which has no LLM at all). Same shape as
-the removed `ChangelogSourceAgent`: OpenAI SDK, `chat.completions.create`
-with a `json_schema` `response_format` so the answer is always
-`{ isBreaking: boolean, summary: string }` — never prose to parse. Checks
-`finish_reason === "content_filter"` / `message.refusal` before trusting
-the response, same as before.
+Lives in `src/data-sources/agent/`. Plain prose out, not structured
+JSON - there's no boolean decision to extract anymore, just a summary for
+the coding agent to read (see `ChangeRequestInput.summary` in
+[`docs/change-requests.md`](./change-requests.md)). Dropping the
+`json_schema` `response_format` the old classifier used is also more
+portable, not just simpler: not every model/provider honors it reliably
+(verified directly - a free OpenRouter model just ignored the schema and
+returned prose instead of JSON). Same refusal/content-filter/empty-response
+checks as before.
 
-### `release_analysis_runs` / `release_analysis_results`
+### `ChangelogSummarizer.summarize(packageName, fromVersion, toVersion)`
 
-See [`docs/database.md`](./database.md) for the column lists.
-`ReleaseAnalysisRepository` covers both tables:
-`.startRun()` inserts a `status: 'running'` row (`RETURNING id`, so the
-caller doesn't need a second query) and `.finishRun(runId, status)` sets
-`status` + `ended_at` once the run is done. `.insertResult()` writes one
-row per package actually classified, tied to that run via `run_id`.
+Orchestrates the above for one Renovate suggestion:
 
-### `ReleaseAnalysisModule.run()`
+1. `DataSourcesRepository.findUrl(packageName)` - `null` (no known
+   changelog source) short-circuits to `null`, nothing to summarize.
+2. `GitHubReleaseFetcher.fetchRange(...)` for the exact
+   `fromVersion`→`toVersion` span, concatenated into one document (each
+   release's body under a `## <tag>` heading). An empty result (no
+   releases actually fall in range) also short-circuits to `null`.
+3. Capped at `MAX_COMBINED_LENGTH` (60,000 characters) before
+   summarizing - ponytail: a flat cap, not per-release trimming, since a
+   fast-moving package could otherwise have hundreds of releases in range,
+   and a truncated-but-complete prefix is still more useful to the model
+   than nothing.
+4. `ChangelogSummarizerAgent.summarize(...)` on the (possibly truncated)
+   combined text.
 
-1. Starts a run (`ReleaseAnalysisRepository.startRun()`).
-2. For every `data_sources` entry (`DataSourcesRepository.listAll()`):
-   fetch its latest release; if there's no release, or the release body
-   is empty, skip it (nothing to classify); otherwise classify the body
-   and insert a result. One package failing (no releases, GitHub rate
-   limit, model refusal, ...) is logged and skipped — it doesn't abort the
-   run, matching the resilience pattern used everywhere else in this
-   module.
-3. Between every package (whether it succeeded, was skipped, or failed),
-   waits `DELAY_BETWEEN_PACKAGES_MS` (1 second) before continuing — **this
-   is the "don't hit the model's rate limit" mechanism**. Unlike the
-   lookup queue's `BATCH_SIZE` (which caps how much of the queue one tick
-   touches, deliberately leaving the rest for later ticks), this pipeline
-   is meant to get through _every_ data source each run, just paced out
-   rather than fired all at once.
-4. Marks the run `'completed'` when the loop finishes, or `'failed'` if
-   something outside the per-package try/catch throws (a bug, not a
-   per-package failure) — either way, the run is never left stuck at
-   `'running'` forever.
+### `DataSourcesRepository.findUrl(packageName)`
 
-### `Scheduler` (release-analysis-scheduler.ts)
+By package name, not id - a changelog source is a property of the package
+itself, not of whichever repo's scan happened to discover it first (same
+reasoning as `PackagesRepository.findNew`, see
+[`docs/database.md`](./database.md)).
 
-Same shape as the other two schedulers in this CLI, but also takes an
-`LlmConfig` (to construct `ReleaseAnalysisModule`'s classifier) alongside
-the cron expression. The cron expression is a constructor argument, not hardcoded inside the
-class - same as the other schedulers. `main.ts` always passes the fixed
-daily expression, though; it's not behind a CLI flag (see below).
+### A real hang, and the fix: `fetchWithTimeout`
 
-### CLI
-
-Not behind a flag - `main.ts` always constructs and starts this
-`Scheduler` too, alongside the changelog-lookup one. `data_sources` itself
-is global (not tied to what `--path` scanned), same reasoning as the
-lookup queue - though `--path` is still required by the CLI regardless.
-**Does** need a valid `~/.apiweiser-cli/config.json` (see
-[`docs/config.md`](./config.md)) — since this scheduler is always on, so
-is that requirement: every invocation of the CLI needs a filled-in config.
+Found by reproducing it in isolation, not guessed at: a real
+`ChangelogSummarizerAgent.summarize()` call once sat open with zero
+response and zero CPU activity indefinitely, after several earlier calls
+in the same run had already been getting progressively slower (10s, 17s,
+26s, 29s). `fetch()` has no default timeout, and the OpenAI SDK's own
+default is 10 minutes - both far too long for a pipeline meant to process
+a repo's suggestions in one sitting. Every direct `fetch()` call in this
+codebase (`GitHubReleaseFetcher`, `NpmRegistryLookup`,
+`PullRequestService` - see [`docs/github.md`](./github.md)) now goes
+through `src/http.ts`'s `fetchWithTimeout` (60s, `AbortSignal.timeout`),
+and `ChangelogSummarizerAgent`'s `OpenAI` client is constructed with the
+same `timeout` value - a non-responding endpoint now fails like any other
+error (logged, skipped) instead of blocking the whole run forever.

@@ -13,3 +13,15 @@ test("generate reports this repo's own direct dependencies", async () => {
   assert.ok(commander, "expected commander in this repo's own dependencies");
   assert.equal(commander?.type, "direct");
 });
+
+// npm sbom marks a devDependency with a `cdx:npm:package:development`
+// property, not a distinct `scope` value - typescript is a real
+// devDependency of this repo itself, so no fixture needed.
+test("generate flags a devDependency via isDevDependency", async () => {
+  const dependencies = await new SbomTool().generate(".");
+
+  const commander = dependencies.find((dependency) => dependency.name === "commander");
+  const typescript = dependencies.find((dependency) => dependency.name === "typescript");
+  assert.equal(commander?.isDevDependency, false);
+  assert.equal(typescript?.isDevDependency, true);
+});

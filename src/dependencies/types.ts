@@ -3,6 +3,7 @@ export interface Dependency {
   name: string;
   currentVersion: string;
   type: "direct" | "transitive";
+  isDevDependency: boolean;
 }
 
 export interface CallSite {

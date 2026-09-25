@@ -31,7 +31,15 @@ export class DependenciesModule {
     const names = changedOrNew.map((dependency) => dependency.name);
     this.callSitesRepository.deleteForDependencies(absoluteRepoPath, names);
 
-    const callSites = await this.scanner.findCallSites(absoluteRepoPath, changedOrNew);
+    // devDependencies aren't scanned for call sites - found the hard way
+    // on a real repo: typescript (a devDependency) ships its own ambient
+    // standard-library declarations, so every global (console, fetch,
+    // Array...) resolved as a false "call site" for it, and even a
+    // legitimate devDependency like @types/react only shows up via type
+    // positions, never a real API call worth migrating with a codemod.
+    // ChangeRequestsModule falls back to changelog-only context for these.
+    const runtimeDependencies = changedOrNew.filter((dependency) => !dependency.isDevDependency);
+    const callSites = await this.scanner.findCallSites(absoluteRepoPath, runtimeDependencies);
     this.callSitesRepository.insert(absoluteRepoPath, callSites);
 
     this.dataSourcesModule.enqueueForLookup(newDependencies);

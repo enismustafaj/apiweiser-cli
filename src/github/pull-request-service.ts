@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "../http.ts";
 import type { GithubConfig } from "../config/config.ts";
 
 interface OpenPullRequestParams {
@@ -19,7 +20,7 @@ export class PullRequestService {
   }
 
   async open(owner: string, repo: string, params: OpenPullRequestParams): Promise<string> {
-    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.token}`,

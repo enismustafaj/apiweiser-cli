@@ -81,3 +81,16 @@ test("findChangelogSource returns null for a non-GitHub repository url", async (
 
   assert.equal(result, null);
 });
+
+// Real package ("ext", published from es5-ext's ext/ subdirectory) whose
+// repository.url is exactly this shape - npm's shorthand for
+// repository.directory. Without stripping the fragment first, ".git$"
+// never matches (there's a "#ext" after it), and "ext" gets swept into
+// the repo name, producing a URL that always 404s.
+test("findChangelogSource strips a #<subdirectory> fragment (npm's repository.directory shorthand)", async () => {
+  stubFetch(200, { repository: { url: "git+https://github.com/medikoo/es5-ext.git#ext" } });
+
+  const result = await new NpmRegistryLookup().findChangelogSource("ext");
+
+  assert.equal(result, "https://api.github.com/repos/medikoo/es5-ext/releases");
+});

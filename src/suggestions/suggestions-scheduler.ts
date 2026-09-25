@@ -1,6 +1,6 @@
 import { createTask } from "node-cron";
 import type { ScheduledTask } from "node-cron";
-import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
+import type { CodingAgentConfig, GithubConfig, LlmConfig } from "../config/config.ts";
 import { SuggestionsModule } from "./index.ts";
 
 export class Scheduler {
@@ -11,10 +11,11 @@ export class Scheduler {
   constructor(
     repoPath: string,
     cronExpression: string,
+    llmConfig: LlmConfig,
     codingAgentConfig: CodingAgentConfig,
     githubConfig: GithubConfig,
   ) {
-    this.suggestions = new SuggestionsModule(codingAgentConfig, githubConfig);
+    this.suggestions = new SuggestionsModule(llmConfig, codingAgentConfig, githubConfig);
     this.repoPath = repoPath;
     this.task = createTask(cronExpression, () => this.run());
   }

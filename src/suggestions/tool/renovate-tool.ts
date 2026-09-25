@@ -39,6 +39,14 @@ export class RenovateTool {
           "--require-config=optional",
           "--dependency-dashboard=false",
           "--osv-vulnerability-alerts=true",
+          // Restrict to the npm manager (package.json dependencies) -
+          // without this, Renovate also proposes updates for things like
+          // the Node.js runtime version itself (.nvmrc/engines.node,
+          // datasource "node-version"), which isn't a real npm dependency
+          // and has no depType at all in Renovate's own report, crashing
+          // SuggestionsRepository.insert (a NOT NULL column) when one
+          // slips through.
+          "--enabled-managers=npm",
           "--report-type=file",
           `--report-path=${reportPath}`,
         ],

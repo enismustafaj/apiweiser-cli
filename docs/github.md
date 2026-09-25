@@ -49,11 +49,20 @@ the clone checked out on a PR feature branch (`GitTool.createBranch`/
 `node_modules` actually installed, which a fresh clone doesn't have - but
 that's a dependencies-module concern, not a git-cloning one.
 `DependencyInstaller.install(repoPath)` (`src/dependencies/tool/`, next to
-`SbomTool`) runs `npm install` - a no-op if there's no `package.json` -
-and `main.ts` calls it explicitly right after `cloneOrPull`, only for the
-`--repo` path. A `--path` repo is assumed to already have its own
-dependencies installed by the user; running `npm install` against it
-unasked would mutate a repo this CLI doesn't own.
+`SbomTool`) runs `npm install --legacy-peer-deps` - a no-op if there's no
+`package.json` - and `main.ts` calls it explicitly right after
+`cloneOrPull`, only for the `--repo` path. A `--path` repo is assumed to
+already have its own dependencies installed by the user; running
+`npm install` against it unasked would mutate a repo this CLI doesn't own.
+
+**`--legacy-peer-deps`**: found the hard way, cloning a real dormant repo -
+npm 7+ rejects a peer conflict outright by default (a real one hit:
+`react@17` vs `mobx-react@5.4.4`'s peer range capping at `react@16`, which
+installed fine for years under npm 6, which only warned). A repo this old
+and unmaintained is exactly the kind this CLI most needs to handle, so
+failing to even install it isn't acceptable - this flag restores npm 6's
+"warn, don't block" behavior, since the goal here is installing the repo's
+dependencies as they actually are, not fixing them.
 
 **Trust model, same as everywhere else in this CLI**: `ConfigLoader` only
 checks that `github.token` is _present_, never that it's actually a valid

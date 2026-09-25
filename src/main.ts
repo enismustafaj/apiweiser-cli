@@ -2,7 +2,6 @@
 import { Command } from "commander";
 import { ConfigLoader } from "./config/config-loader.ts";
 import { Scheduler as DataSourcesScheduler } from "./data-sources/changelog-lookup-scheduler.ts";
-import { Scheduler as ReleaseAnalysisScheduler } from "./data-sources/release-analysis-scheduler.ts";
 import { DashboardModule } from "./dashboard/index.ts";
 import { DependenciesModule } from "./dependencies/index.ts";
 import { DependencyInstaller } from "./dependencies/tool/dependency-installer.ts";
@@ -40,8 +39,13 @@ app
     await dependencies.scan(repoPath);
 
     new DataSourcesScheduler(DAILY_CRON).start();
-    new ReleaseAnalysisScheduler(DAILY_CRON, config.llm, config.github).start();
-    new SuggestionsScheduler(repoPath, DAILY_CRON, config.codingAgent, config.github).start();
+    new SuggestionsScheduler(
+      repoPath,
+      DAILY_CRON,
+      config.llm,
+      config.codingAgent,
+      config.github,
+    ).start();
   });
 
 app

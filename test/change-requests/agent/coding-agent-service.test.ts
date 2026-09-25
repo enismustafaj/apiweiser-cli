@@ -1,6 +1,6 @@
 // No mocking of the agent CLI itself - config.command points at a real
 // `node -e <script>` subprocess standing in for it, same idea as
-// breaking-change-classifier.test.ts's local HTTP stand-in for an LLM
+// changelog-summarizer-agent.test.ts's local HTTP stand-in for an LLM
 // provider. The fake agent writes the exact prompt it received to a file
 // so the test can inspect it, then reports success.
 
@@ -50,7 +50,7 @@ test("buildPrompt samples at most 3 call sites per API surface and says so", asy
     version: "1.0.0",
     newVersion: "2.0.0",
     callSites,
-    isBreaking: true,
+    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -77,7 +77,7 @@ test("buildPrompt doesn't truncate or mention sampling when nothing was dropped"
     version: "1.0.0",
     newVersion: "2.0.0",
     callSites: [callSite("Foo.bar", 1), callSite("Foo.baz", 2)],
-    isBreaking: true,
+    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -86,4 +86,29 @@ test("buildPrompt doesn't truncate or mention sampling when nothing was dropped"
 
   assert.doesNotMatch(prompt, /showing \d+ of \d+ total/);
   assert.match(prompt, /this list may not be exhaustive/);
+});
+
+// devDependencies never have call sites (see DependenciesModule.scan) -
+// the prompt should hand the agent the changelog summary and tell it to
+// inspect the repo itself, not claim a call-site sample that doesn't exist.
+test("buildPrompt describes a devDependency upgrade without a call-site sample", async () => {
+  const packageName = `test-pkg-${randomUUID()}`;
+  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", packageName));
+  const service = new CodingAgentService({ command: "node", args: ["-e", CAPTURE_SCRIPT] });
+
+  await service.generateCodemod({
+    repoPath: "/repos/a",
+    packageName,
+    version: "1.0.0",
+    newVersion: "2.0.0",
+    callSites: [],
+    isDevDependency: true,
+    summary: "breaking release",
+  });
+
+  const codemodPath = new CodemodRegistry().pathFor(packageName, "1.0.0", "2.0.0");
+  const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
+
+  assert.match(prompt, /is a devDependency - no call sites were\ntracked/);
+  assert.doesNotMatch(prompt, /Call sites to migrate/);
 });

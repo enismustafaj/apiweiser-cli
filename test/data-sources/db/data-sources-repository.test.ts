@@ -35,3 +35,21 @@ test("listAll returns an empty array when nothing has been recorded", () => {
 
   assert.deepEqual(dataSources.listAll(), []);
 });
+
+test("findUrl finds a recorded source by package name", () => {
+  const { dataSources, packageId } = setup();
+  dataSources.insert(
+    new Map([[packageId, "https://api.github.com/repos/tj/commander.js/releases"]]),
+  );
+
+  assert.equal(
+    dataSources.findUrl("commander"),
+    "https://api.github.com/repos/tj/commander.js/releases",
+  );
+});
+
+test("findUrl returns null for a package with no recorded source", () => {
+  const { dataSources } = setup();
+
+  assert.equal(dataSources.findUrl("commander"), null);
+});

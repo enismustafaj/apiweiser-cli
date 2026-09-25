@@ -6,7 +6,7 @@ export interface ChangeRequestInput {
   version: string;
   newVersion: string;
   callSites: CallSite[];
-  isBreaking: boolean;
+  isDevDependency: boolean;
   summary: string;
 }
 

@@ -1,24 +1,34 @@
 # Change requests
 
-`src/change-requests/` — turns a breaking package update (surfaced by
-[`docs/suggestions.md`](./suggestions.md), which classified it via
-[`docs/data-sources.md`](./data-sources.md) § Release analysis) into a
-codemod: asks a configured coding agent to build and validate one, "the
-codemod way" (see below), keeps the result in a local registry either way,
-and on success hands it to [`docs/github.md`](./github.md) to actually
+`src/change-requests/` — turns a proposed package update (surfaced by
+[`docs/suggestions.md`](./suggestions.md), summarized via
+[`docs/data-sources.md`](./data-sources.md) § Changelog summarization)
+into a codemod: asks a configured coding agent to build and validate one,
+"the codemod way" (see below), keeps the result in a local registry either
+way, and on success hands it to [`docs/github.md`](./github.md) to actually
 apply it and open a PR.
 
 ## `ChangeRequestInput`
 
-| field         | type         | notes                                        |
-| ------------- | ------------ | -------------------------------------------- |
-| `repoPath`    | `string`     | the repo being monitored, for `GithubModule` |
-| `packageName` | `string`     |                                              |
-| `version`     | `string`     | current version, before the update           |
-| `newVersion`  | `string`     | Renovate's proposed version                  |
-| `callSites`   | `CallSite[]` | from `CallSitesRepository.findForDependency` |
-| `isBreaking`  | `boolean`    | from `release_analysis_results.is_breaking`  |
-| `summary`     | `string`     | from `release_analysis_results.summary`      |
+| field             | type         | notes                                                                                     |
+| ----------------- | ------------ | ----------------------------------------------------------------------------------------- |
+| `repoPath`        | `string`     | the repo being monitored, for `GithubModule`                                              |
+| `packageName`     | `string`     |                                                                                           |
+| `version`         | `string`     | current version, before the update                                                        |
+| `newVersion`      | `string`     | Renovate's proposed version                                                               |
+| `callSites`       | `CallSite[]` | from `CallSitesRepository.findForDependency`, always `[]` for a devDependency (see below) |
+| `isDevDependency` | `boolean`    | from Renovate's `depType`, see below                                                      |
+| `summary`         | `string`     | from `ChangelogSummarizer.summarize`                                                      |
+
+**Why `isDevDependency` matters here**: `DependenciesModule.scan()` never
+scans devDependencies for call sites at all (see
+[`docs/scanner.md`](./scanner.md) § devDependencies aren't scanned at
+all) - so `callSites` being empty means two different things depending on
+this flag. For a real dependency, empty means "nothing in this repo
+actually calls it" - skip, there's nothing to migrate. For a
+devDependency, empty is the _normal_, expected case - the agent still gets
+invoked, working from the changelog summary alone (see `CodingAgentService`
+below).
 
 ## "The codemod way"
 
@@ -67,12 +77,11 @@ returns that directory's path, creating it first if it's missing.
   **full, exact version pair** - `<packageName>/2.4.5_to_2.7.0/`. There's
   no equivalent stable "recipe" to generalize here. A major bump is
   documented by the package itself as one coherent breaking change
-  regardless of which patch you're coming from; a same-major "breaking"
-  release isn't (that classification comes from an LLM reading changelog
-  prose, not semver convention - see `BreakingChangeClassifierAgent` in
-  [`docs/data-sources.md`](./data-sources.md) § Release analysis, a
-  package can ship a breaking change without a major bump). Two different
-  same-major "breaking" releases could be entirely unrelated fixes -
+  regardless of which patch you're coming from; a same-major update isn't
+  (a package can ship a breaking change without a major bump, per semver
+  convention or not - see `ChangelogSummarizerAgent` in
+  [`docs/data-sources.md`](./data-sources.md) § Changelog summarization).
+  Two different same-major updates could be entirely unrelated fixes -
   coarsening those together would point the agent at a prior entry that
   has nothing to do with the current one, not just an incomplete one.
 
@@ -156,6 +165,18 @@ a filtered run scoped to just the current repo's call sites. That's what
 actually proves a previous repo isn't regressed: not a check that its
 fixture file still exists on disk, but that it still passes.
 
+**devDependencies get a different prompt section, not a shorter one**:
+`buildPrompt` branches on `input.isDevDependency` - a real dependency gets
+the call-site sample described above; a devDependency gets a section
+telling the agent there's no call-site sample (dev tooling isn't scanned,
+see [`docs/scanner.md`](./scanner.md) § devDependencies aren't scanned at
+all), to inspect the repo itself (config files, `package.json` scripts, CI
+config), and that reporting success with no transform at all is a valid
+outcome if nothing in this repo actually needs to change for the upgrade.
+Both branches still ask for the same `CODEMOD_RESULT:` line and the same
+full-test-suite discipline below - only the "what to base the transform
+on" input differs.
+
 **Reporting the result**: an agent session's output is a transcript, not
 structured data. The prompt asks the agent to print exactly one line at the
 end, starting with `CODEMOD_RESULT:`, followed by JSON matching
@@ -168,17 +189,20 @@ for debugging rather than guessing.
 ## `ChangeRequestsModule.create(input)`
 
 Called by `SuggestionsModule` (see [`docs/suggestions.md`](./suggestions.md)
-§ Raising change requests) whenever a proposed update's new version was
-already classified as breaking.
+§ Raising change requests) for every proposed update with a summarized
+changelog - there's no breaking/not-breaking gate anymore.
 
-0. If `input.callSites` is empty, returns immediately -
-   `{ success: true, codemodPath: "" }` - without spawning the coding agent
-   or opening a PR at all. A package classified as breaking can still have
-   zero real call sites in this particular repo (e.g. `lint-staged`,
-   invoked only via git hooks/config, never `import`ed or `require`d as a
-   library) - there's nothing for a codemod to migrate, and a full agent
-   session just to confirm that costs real time and money for a foregone
-   conclusion.
+0. If `input.callSites` is empty **and `input.isDevDependency` is false**,
+   returns immediately - `{ success: true, codemodPath: "" }` - without
+   spawning the coding agent or opening a PR at all. `SuggestionsModule`
+   already checks this before calling in (see
+   [`docs/suggestions.md`](./suggestions.md)); this is defense in depth for
+   any other caller, not the primary guard - there's nothing for a codemod
+   to migrate, and a full agent session just to confirm that costs real
+   time and money for a foregone conclusion. A devDependency with no call
+   sites is the normal case (see [`docs/scanner.md`](./scanner.md) §
+   devDependencies aren't scanned at all), so this check doesn't apply to
+   it - it still reaches step 1.
 1. Otherwise, `CodingAgentService.generateCodemod(input)` - always, whether
    or not a
    codemod already exists for this package + version pair (see

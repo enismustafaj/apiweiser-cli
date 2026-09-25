@@ -13,7 +13,6 @@ once, shared by every module.
   domain concepts beyond creating their tables. Each module has its own
   `*Repository` class (`PackagesRepository`, `CallSitesRepository`,
   `DataSourcesRepository`, `PendingChangelogLookupsRepository`,
-  `ReleaseAnalysisRepository`,
   `SuggestionsRepository`, `PullRequestsRepository`) that takes a `Database`
   injected via constructor and runs its own queries against
   `db.connection`. See [`docs/scanner.md`](./scanner.md),
@@ -84,9 +83,9 @@ this CLI globally (across every repo it's ever scanned), not new to one
 repo. A package's changelog source (`data_sources`, below) is a property
 of the package, not of whichever repo happens to depend on it, so a second
 repo introducing an already-known package shouldn't re-trigger that lookup.
-This is also what lets a breaking-release classification or a generated
-codemod (see [`docs/change-requests.md`](./change-requests.md)) found via
-one repo apply to another - those are keyed by package identity, never by
+This is also what lets a generated codemod (see
+[`docs/change-requests.md`](./change-requests.md)) found via one repo
+apply to another - those are keyed by package identity, never by
 `repo_path`.
 
 ### `call_sites`
@@ -157,34 +156,6 @@ but never gets a row here — there's no URL to record.
 `DataSourcesRepository.insert()` takes `Map<packageId, url>` and inserts
 `package_id` directly — no subquery, since `DataSourcesModule` already has
 each `Dependency`'s `id` (set by `PackagesRepository.upsert()`) on hand.
-
-### `release_analysis_runs`
-
-One row per `ReleaseAnalysisModule.run()` invocation (see
-[`docs/data-sources.md`](./data-sources.md) § Release analysis) — when it
-started, ended, and its outcome.
-
-| column       | type    | notes                                                            |
-| ------------ | ------- | ---------------------------------------------------------------- |
-| `id`         | INTEGER | primary key, autoincrement                                       |
-| `started_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`                                  |
-| `ended_at`   | TEXT    | nullable — set by `.finish()`; null while the run is in progress |
-| `status`     | TEXT    | `'running'` (default) → `'completed'` or `'failed'`              |
-
-### `release_analysis_results`
-
-One row per package actually classified during a run — skipped packages
-(no release published, empty release body) get no row.
-
-| column        | type    | notes                                                |
-| ------------- | ------- | ---------------------------------------------------- |
-| `id`          | INTEGER | primary key, autoincrement                           |
-| `run_id`      | INTEGER | `REFERENCES release_analysis_runs(id)`, not null     |
-| `package_id`  | INTEGER | `REFERENCES packages(id)`, not null                  |
-| `release_tag` | TEXT    | e.g. `"v15.0.0"`, from the GitHub release            |
-| `is_breaking` | INTEGER | `0`/`1` — the classifier's boolean, stored as an int |
-| `summary`     | TEXT    | one or two sentences from the classifier             |
-| `created_at`  | TEXT    | defaults to `CURRENT_TIMESTAMP`                      |
 
 ### `suggestions`
 

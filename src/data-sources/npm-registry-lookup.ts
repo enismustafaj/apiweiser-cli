@@ -1,15 +1,11 @@
-// Resolves ~99.9% of real-world packages (verified against 769 packages
-// from a real repo scan).
-
+import { fetchWithTimeout } from "../http.ts";
 import type { NpmPackageManifest } from "./types.ts";
 
 export class NpmRegistryLookup {
   async findChangelogSource(packageName: string): Promise<string | null> {
-    const response = await fetch(`https://registry.npmjs.org/${packageName}/latest`);
+    const response = await fetchWithTimeout(`https://registry.npmjs.org/${packageName}/latest`);
     if (response.status === 404) return null;
     if (!response.ok) {
-      // 429/5xx is a transient failure, not "no data" - the caller should
-      // retry later, not record it as a definitive miss.
       throw new Error(`npm registry returned ${response.status} for "${packageName}"`);
     }
 
@@ -33,6 +29,7 @@ export class NpmRegistryLookup {
       .replace(/^ssh:\/\/git@github\.com\//, "https://github.com/")
       .replace(/^git@github\.com:/, "https://github.com/")
       .replace(/^github:/, "")
+      .replace(/#.*$/, "")
       .replace(/\.git$/, "");
 
     const hostMatch = cleaned.match(/github\.com[/:]([^/]+)\/([^/]+)/);

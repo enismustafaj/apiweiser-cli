@@ -57,6 +57,28 @@ link: each `.method(...)` call's declaration still resolves into
 `commander`'s package in `node_modules`, regardless of how the value it's
 called on was produced.
 
+## devDependencies aren't scanned at all
+
+`DependenciesModule.scan()` filters out `isDevDependency` dependencies
+(see [`SbomTool`](../src/dependencies/tool/sbom-tool.ts), which reads npm
+sbom's `cdx:npm:package:development` component property) before calling
+`findCallSites` - dev tooling doesn't get "called" from application code
+the way a runtime dependency does, and even where it technically resolves
+(e.g. `@types/react`'s JSX/prop types, used throughout `.tsx` files), that
+isn't a real API call worth migrating with a codemod. See
+[`docs/change-requests.md`](./change-requests.md) for how a devDependency
+upgrade still gets a change request, just without a call-site sample.
+
+This is also what keeps `typescript` itself out of the scanner:
+`typescript`'s npm package ships its own standard-library ambient
+declarations (`lib.es5.d.ts`, `lib.dom.d.ts`, ...), declaring every global
+JS/DOM API (`console`, `fetch`, `parseFloat`, `Array`, ...) under
+`node_modules/typescript/lib/` - resolving any of those as a "typescript"
+call site would be wrong (that's not `typescript`'s own API, which lives
+in `typescript.d.ts`), and it's `typescript` being a devDependency, not a
+special case in `Scanner` itself, that keeps it from ever reaching
+`findCallSites` in the first place.
+
 ## What it deliberately does not do
 
 - **No JS support.** Only `.ts`/`.tsx` files are scanned; plain `.js`/`.jsx`

@@ -4,10 +4,6 @@ import { DataSourcesRepository } from "./db/data-sources-repository.ts";
 import { PendingChangelogLookupsRepository } from "./db/pending-changelog-lookups-repository.ts";
 import { NpmRegistryLookup } from "./npm-registry-lookup.ts";
 
-// npm doesn't publish an official rate limit - this is a conservative
-// per-tick budget based on empirically getting 429s after a few hundred
-// rapid sequential requests.
-// ponytail: fixed constant until there's a reason to tune it.
 const BATCH_SIZE = 50;
 
 export class DataSourcesModule {

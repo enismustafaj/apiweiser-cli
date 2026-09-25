@@ -13,7 +13,11 @@ export class ChangeRequestsModule {
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
-    if (input.callSites.length === 0) {
+    // A devDependency legitimately has no call sites (see
+    // DependenciesModule.scan) - the agent still gets a shot at it, working
+    // from the changelog summary alone. For a real dependency, empty call
+    // sites means there's nothing to migrate in this repo at all.
+    if (input.callSites.length === 0 && !input.isDevDependency) {
       console.log(
         `ChangeRequestsModule: no call sites for "${input.packageName}" - skipping, nothing to migrate.`,
       );

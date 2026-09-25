@@ -3,7 +3,7 @@
 `src/config/` — the CLI's own config file, which the user has to fill in
 themselves (an LLM API key, a coding agent command, a GitHub token) before
 running the CLI at all — every invocation always starts the changelog-lookup
-and release-analysis schedulers (see below), so this is never optional.
+and suggestions schedulers (see below), so this is never optional.
 
 ## File location
 
@@ -41,8 +41,8 @@ configured for that repo.
 ## `ConfigLoader.load(configPath?)`
 
 Called unconditionally at the top of `main.ts` — every invocation needs it,
-since the changelog-lookup and release-analysis schedulers always start
-(see [`docs/data-sources.md`](./data-sources.md)). A missing or incomplete
+since the changelog-lookup and suggestions schedulers always start (see
+[`docs/data-sources.md`](./data-sources.md)). A missing or incomplete
 config fails fast, before anything else runs.
 
 - **File missing**: writes the template above (with an empty `apiKey`) to
