@@ -45,6 +45,7 @@ app
       config.llm,
       config.codingAgent,
       config.github,
+      config.codemodRegistry,
     ).start();
   });
 

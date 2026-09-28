@@ -71,3 +71,60 @@ test("load returns the parsed config when it's complete", () => {
 
   assert.deepEqual(result, config);
 });
+
+// codemodRegistry itself stays optional - omitting it means "local" - but
+// mode: "remote" is a real, explicit choice to authenticate against and
+// publish to an external service, so it has real requirements.
+test("load succeeds without codemodRegistry at all", () => {
+  const configPath = tempConfigPath();
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+  };
+  writeFileSync(configPath, JSON.stringify(config));
+
+  assert.doesNotThrow(() => new ConfigLoader().load(configPath));
+});
+
+test('load succeeds with codemodRegistry.mode: "local" and no scope/apiKey', () => {
+  const configPath = tempConfigPath();
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+    codemodRegistry: { mode: "local" },
+  };
+  writeFileSync(configPath, JSON.stringify(config));
+
+  assert.doesNotThrow(() => new ConfigLoader().load(configPath));
+});
+
+test('load throws when codemodRegistry.mode is "remote" but scope/apiKey are missing', () => {
+  const configPath = tempConfigPath();
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+    codemodRegistry: { mode: "remote" },
+  };
+  writeFileSync(configPath, JSON.stringify(config));
+
+  assert.throws(
+    () => new ConfigLoader().load(configPath),
+    /codemodRegistry\.scope or codemodRegistry\.apiKey/,
+  );
+});
+
+test('load succeeds when codemodRegistry.mode is "remote" with scope and apiKey', () => {
+  const configPath = tempConfigPath();
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+    codemodRegistry: { mode: "remote", scope: "my-org", apiKey: "key" },
+  };
+  writeFileSync(configPath, JSON.stringify(config));
+
+  assert.doesNotThrow(() => new ConfigLoader().load(configPath));
+});

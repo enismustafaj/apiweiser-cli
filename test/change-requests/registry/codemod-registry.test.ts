@@ -83,3 +83,41 @@ test("pathFor resolves different directories for two different same-major upgrad
 
   assert.notEqual(first, second);
 });
+
+test("dirFor returns the same directory pathFor would create, without creating it", () => {
+  const reg = registry();
+  const created = reg.pathFor("commander", "15.0.0", "16.0.0");
+
+  const dir = reg.dirFor("commander", "15.0.0", "16.0.0");
+
+  assert.equal(dir, created);
+});
+
+test("dirFor doesn't create the directory when it doesn't already exist", () => {
+  const reg = registry();
+
+  const dir = reg.dirFor("never-scanned", "1.0.0", "2.0.0");
+
+  assert.equal(existsSync(dir), false);
+});
+
+// remoteName mirrors pathFor's own major-crossing-vs-exact-version rule
+// (a local entry and its published counterpart must agree on this), just
+// as a flat, dash-joined string instead of a directory path.
+test("remoteName mirrors pathFor's major-only keying for a major-crossing upgrade", () => {
+  const name = registry().remoteName("chalk", "4.1.2", "5.2.7");
+
+  assert.equal(name, "chalk-4-to-5");
+});
+
+test("remoteName mirrors pathFor's exact-version keying for a same-major upgrade", () => {
+  const name = registry().remoteName("some-pkg", "2.4.5", "2.7.0");
+
+  assert.equal(name, "some-pkg-2.4.5-to-2.7.0");
+});
+
+test("remoteName strips both path separators and the leading @ from a scoped package name", () => {
+  const name = registry().remoteName("@scope/pkg", "1.0.0", "2.0.0");
+
+  assert.equal(name, "scope_pkg-1-to-2");
+});

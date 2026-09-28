@@ -134,3 +134,49 @@ test("buildPrompt describes a multi-package group that must move together", asyn
   assert.match(prompt, new RegExp(`"${scope}/core"@5\\.0\\.0 to @20\\.0\\.0`));
   assert.match(prompt, new RegExp(`"${scope}/router"@5\\.0\\.0 to @22\\.0\\.0`));
 });
+
+// See docs/change-requests.md § Remote registry - the agent is told where
+// to look and asked to judge reuse itself, rather than our own code
+// deciding a name match is usable (there's no safe way to search without a
+// scope, so no scope configured means no section at all).
+test("buildPrompt tells the agent to check the remote registry when a scope is configured", async () => {
+  const packageName = `test-pkg-${randomUUID()}`;
+  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", packageName));
+  const service = new CodingAgentService(
+    { command: "node", args: ["-e", CAPTURE_SCRIPT] },
+    { mode: "remote", scope: "my-org", apiKey: "unused-for-search" },
+  );
+
+  await service.generateCodemod({
+    repoPath: "/repos/a",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
+    callSites: [callSite("Foo.bar", 1)],
+    isDevDependency: false,
+    summary: "breaking release",
+  });
+
+  const codemodPath = new CodemodRegistry().pathFor(packageName, "1.0.0", "2.0.0");
+  const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
+
+  assert.match(prompt, /Also check the public codemod registry/);
+  assert.match(prompt, new RegExp(`codemod search "${packageName}-1-to-2" --scope "my-org"`));
+});
+
+test("buildPrompt omits the remote registry section when no scope is configured", async () => {
+  const packageName = `test-pkg-${randomUUID()}`;
+  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", packageName));
+  const service = new CodingAgentService({ command: "node", args: ["-e", CAPTURE_SCRIPT] });
+
+  await service.generateCodemod({
+    repoPath: "/repos/a",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
+    callSites: [callSite("Foo.bar", 1)],
+    isDevDependency: false,
+    summary: "breaking release",
+  });
+
+  const codemodPath = new CodemodRegistry().pathFor(packageName, "1.0.0", "2.0.0");
+  const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
+
+  assert.doesNotMatch(prompt, /Also check the public codemod registry/);
+});

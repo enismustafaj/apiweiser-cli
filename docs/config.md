@@ -15,10 +15,16 @@ the scanned repo.
 
 ## Shape
 
-An object with three top-level keys: `llm` (`apiKey`, `url`, `model`),
+Three required top-level keys: `llm` (`apiKey`, `url`, `model`),
 `codingAgent` (`command`, `args`), and `github` (`token`) — see
 `AppConfig`/`LlmConfig`/`CodingAgentConfig`/`GithubConfig` in
-`src/config/config.ts` for the exact fields.
+`src/config/config.ts` for the exact fields. A fourth, `codemodRegistry`
+(`mode: "local" | "remote"`, `scope?`, `apiKey?`), is optional - see
+[`docs/change-requests.md`](./change-requests.md) § Remote registry.
+Omitting it entirely means `"local"` - every codemod is only ever built
+and reused locally, same as before that feature existed. `"remote"`
+requires `scope` and `apiKey` too; `ConfigLoader` (below) validates that
+combination.
 
 `llm.url` is passed straight through as the OpenAI SDK's `baseURL` —
 pointing it at a self-hosted or proxy endpoint that speaks the same wire
@@ -52,6 +58,10 @@ config fails fast, before anything else runs.
   throws naming which field(s) are missing.
 - **File present but missing `codingAgent.command`**: throws naming that.
 - **File present but missing `github.token`**: throws naming that.
+- **File present with `codemodRegistry.mode: "remote"` but missing
+  `codemodRegistry.scope` or `codemodRegistry.apiKey`**: throws naming
+  that. Not checked at all when `codemodRegistry` is absent or
+  `mode: "local"` - only `"remote"` has real requirements.
 - **File present and valid**: returns the parsed `AppConfig`.
 
 `configPath` defaults to the real location above; tests pass an explicit
@@ -59,18 +69,14 @@ temp path instead so they don't touch the user's actual config.
 
 ## Who uses it
 
-- `main.ts` always passes `config.llm` into
-  `new ReleaseAnalysisScheduler(DAILY_CRON, config.llm)`, which forwards it
-  to `ReleaseAnalysisModule`, which constructs `BreakingChangeClassifierAgent`
-  from it (see [`docs/data-sources.md`](./data-sources.md) § Release
-  analysis).
-- `main.ts`'s `--suggestions-cron` handler (still opt-in, unlike the two
-  daily schedulers - it also needs `--path`) passes
-  `config.codingAgent`/`config.github` into
-  `new SuggestionsScheduler(repoPath, cronExpression, config.codingAgent, config.github)`,
+- `main.ts` always constructs both daily schedulers after a `scan`, passing
+  `config.llm`, `config.codingAgent`, `config.github`, and
+  `config.codemodRegistry` into
+  `new SuggestionsScheduler(repoPath, cronExpression, config.llm, config.codingAgent, config.github, config.codemodRegistry)`,
   which forwards them to `SuggestionsModule` → `ChangeRequestsModule` →
-  `CodingAgentService`/`GithubModule` (see
-  [`docs/change-requests.md`](./change-requests.md) and
+  `ChangelogSummarizer`/`CodingAgentService`/`GithubModule` (see
+  [`docs/data-sources.md`](./data-sources.md),
+  [`docs/change-requests.md`](./change-requests.md), and
   [`docs/github.md`](./github.md)).
 
 `DataSourcesModule`'s changelog-_source_ lookups (npm-registry-only) don't

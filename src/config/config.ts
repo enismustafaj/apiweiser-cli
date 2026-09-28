@@ -16,8 +16,25 @@ export interface GithubConfig {
   token: string;
 }
 
+// Optional - see docs/change-requests.md § Remote registry. Explicit, not
+// inferred from which fields happen to be filled in: "local" means every
+// codemod only ever lives in the local registry (today's behavior, and
+// what omitting `codemodRegistry` entirely also means); "remote" means the
+// coding agent also checks codemod.com's public registry before building,
+// and a successful, PR-opened codemod gets published there too - which
+// requires both `scope` and `apiKey` (see `ConfigLoader`, which validates
+// that combination).
+export type CodemodRegistryMode = "local" | "remote";
+
+export interface CodemodRegistryConfig {
+  mode: CodemodRegistryMode;
+  scope?: string;
+  apiKey?: string;
+}
+
 export interface AppConfig {
   llm: LlmConfig;
   codingAgent: CodingAgentConfig;
   github: GithubConfig;
+  codemodRegistry?: CodemodRegistryConfig;
 }

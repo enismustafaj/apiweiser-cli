@@ -40,6 +40,14 @@ export class ConfigLoader {
     if (!config.github?.token) {
       throw new Error(`Config at ${configPath} is missing github.token.`);
     }
+    if (config.codemodRegistry?.mode === "remote") {
+      if (!config.codemodRegistry.scope || !config.codemodRegistry.apiKey) {
+        throw new Error(
+          `Config at ${configPath} has codemodRegistry.mode: "remote" but is missing ` +
+            `codemodRegistry.scope or codemodRegistry.apiKey.`,
+        );
+      }
+    }
     return config;
   }
 }

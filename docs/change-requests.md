@@ -94,8 +94,11 @@ returns that directory's path, creating it first if it's missing.
   coarsening those together would point the agent at a prior entry that
   has nothing to do with the current one, not just an incomplete one.
 
-**For a multi-package group**, `CodingAgentService.registryKey` computes
-`packageName` as the shared scope (`@angular`, not a joined list of every
+**For a multi-package group**, `registryKeyFor` (in `registry-key.ts` -
+extracted so `CodingAgentService` doesn't duplicate this logic for the
+local path and the remote registry name, see § Remote registry below)
+computes `packageName` as the shared scope (`@angular`, not a joined list
+of every
 member's name - groups are always scope-siblings, see
 [`docs/suggestions.md`](./suggestions.md) § Grouping scoped packages) and
 `fromVersion`/`toVersion` as the widest span across the group's members
@@ -236,3 +239,62 @@ changelog - there's no breaking/not-breaking gate anymore.
    changes produced, or `origin` isn't a GitHub remote). Wrapped in
    try/catch; a PR-creation failure doesn't crash
    `SuggestionsModule.generate()`.
+3. If the PR was actually opened **and** `config.codemodRegistry.mode` is
+   `"remote"`, automatically publishes the codemod to the remote registry
+   too (see § Remote registry below) - nothing else to gate on, since by
+   this point the codemod has already passed its own full test suite and
+   produced a real PR. Wrapped in its own try/catch; a publish failure
+   doesn't affect the PR that was already opened, or crash the rest of
+   `generate()`.
+
+## Remote registry
+
+Optional (`config.codemodRegistry`, see [`docs/config.md`](./config.md)) -
+integrates with [codemod.com](https://codemod.com)'s own public registry
+via the `codemod` CLI's `search`/`run`/`login`/`publish` subcommands, not a
+separate registry this CLI hosts itself.
+
+**`mode` is explicit, not inferred**: `codemodRegistry.mode` is either
+`"local"` or `"remote"` - `"local"` (or omitting `codemodRegistry`
+entirely) means every codemod only ever lives in the local registry, the
+same as before this feature existed. `"remote"` turns on both halves
+below, and requires both `scope` and `apiKey` - `ConfigLoader` validates
+that combination up front and fails fast if `mode: "remote"` is set
+without them, rather than silently behaving like `"local"`.
+
+Two independent halves, both gated on `mode: "remote"`:
+
+**Checking first, inside the agent's own prompt, not in our code**: found
+via a direct question worth recording - shouldn't the coding agent be the
+one to decide whether a remote codemod is reusable, the same way it
+already decides that for a local registry entry? Yes - `CodemodRegistry`'s
+own local-reuse design already established that a plain existence/name
+check can't tell whether a match actually covers the current repo's call
+sites (see § `CodemodRegistry` above), and a remote registry name match is
+an even weaker signal than a local one. So `CodingAgentService.buildPrompt`
+doesn't call `codemod search`/`codemod run` itself at all - it tells the
+agent the exact name to look for (`CodemodRegistry.remoteName(...)`, the
+same major-crossing-vs-exact-version key as the local directory, just
+flattened into a dash-joined string) and the configured `scope`, and asks
+the agent to search, inspect (e.g. dry-run it against the repo), and judge
+reuse/extend/ignore itself - via the same shell access it already uses for
+`codemod init`/`run_jssg_tests`/etc. This section is included **only when
+`mode` is `"remote"`** - in `"local"` mode there's nothing to search with
+(no guaranteed `scope`), so the section is omitted entirely rather than
+telling the agent to search unsafely.
+
+**Publishing, as plain code, not agent judgment**: unlike checking,
+publishing is a mechanical action once the gate (a passing test suite +
+an opened PR) has already been cleared by the time
+`ChangeRequestsModule.create` calls it - no reasoning left for the agent to
+apply. `RemoteCodemodRegistry.publish(codemodPath)`:
+
+1. `npx codemod login --api-key <codemodRegistry.apiKey> --scope <codemodRegistry.scope>`
+   - non-interactive, unlike the interactive OAuth flow `codemod login`
+     defaults to.
+2. `npx codemod publish <codemodPath>`.
+
+Throws immediately, before attempting either step, if `mode` isn't
+`"remote"` or `scope`/`apiKey` is missing - a defensive check that mirrors
+`ConfigLoader`'s own validation, since this class can also be constructed
+directly (e.g. in tests) without going through it.

@@ -1,24 +1,29 @@
-import type { CodingAgentConfig, GithubConfig } from "../config/config.ts";
+import type { CodemodRegistryConfig, CodingAgentConfig, GithubConfig } from "../config/config.ts";
 import { CodingAgentService } from "./agent/coding-agent-service.ts";
 import { GithubModule } from "../github/index.ts";
+import { RemoteCodemodRegistry } from "./registry/remote-codemod-registry.ts";
 import type { ChangeRequestInput, CodemodResult } from "./types.ts";
 
 export class ChangeRequestsModule {
   private readonly codingAgentService: CodingAgentService;
   private readonly github: GithubModule;
+  private readonly remoteRegistry: RemoteCodemodRegistry;
+  private readonly canPublish: boolean;
 
-  constructor(codingAgentConfig: CodingAgentConfig, githubConfig: GithubConfig) {
-    this.codingAgentService = new CodingAgentService(codingAgentConfig);
+  constructor(
+    codingAgentConfig: CodingAgentConfig,
+    githubConfig: GithubConfig,
+    codemodRegistryConfig?: CodemodRegistryConfig,
+  ) {
+    this.codingAgentService = new CodingAgentService(codingAgentConfig, codemodRegistryConfig);
     this.github = new GithubModule(githubConfig);
+    this.remoteRegistry = new RemoteCodemodRegistry(codemodRegistryConfig);
+    this.canPublish = codemodRegistryConfig?.mode === "remote";
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
     const label = input.packages.map((pkg) => pkg.name).join(", ");
 
-    // A devDependency legitimately has no call sites (see
-    // DependenciesModule.scan) - the agent still gets a shot at it, working
-    // from the changelog summary alone. For a real dependency, empty call
-    // sites means there's nothing to migrate in this repo at all.
     if (input.callSites.length === 0 && !input.isDevDependency) {
       console.log(
         `ChangeRequestsModule: no call sites for "${label}" - skipping, nothing to migrate.`,
@@ -44,6 +49,7 @@ export class ChangeRequestsModule {
 
       if (pr.created) {
         console.log(`ChangeRequestsModule: opened PR for "${label}": ${pr.url}`);
+        await this.publishIfConfigured(result.codemodPath, label);
       } else {
         console.log(`ChangeRequestsModule: no PR opened for "${label}": ${pr.reason}`);
       }
@@ -52,5 +58,16 @@ export class ChangeRequestsModule {
     }
 
     return result;
+  }
+
+  private async publishIfConfigured(codemodPath: string, label: string): Promise<void> {
+    if (!this.canPublish) return;
+
+    try {
+      await this.remoteRegistry.publish(codemodPath);
+      console.log(`ChangeRequestsModule: published codemod for "${label}" to the remote registry`);
+    } catch (err) {
+      console.error(`ChangeRequestsModule: publish failed for "${label}":`, err);
+    }
   }
 }

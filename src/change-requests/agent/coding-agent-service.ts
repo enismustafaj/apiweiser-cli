@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import semver from "semver";
-import type { CodingAgentConfig } from "../../config/config.ts";
+import type { CodemodRegistryConfig, CodingAgentConfig } from "../../config/config.ts";
 import type { CallSite } from "../../dependencies/types.ts";
+import { registryKeyFor } from "../registry-key.ts";
 import { CodemodRegistry } from "../registry/codemod-registry.ts";
 import type { ChangeRequestInput, ChangeRequestPackage, CodemodResult } from "../types.ts";
 
@@ -15,15 +15,18 @@ const MAX_CALL_SITES_PER_SURFACE = 3;
 export class CodingAgentService {
   private readonly config: CodingAgentConfig;
   private readonly registry: CodemodRegistry = new CodemodRegistry();
+  private readonly codemodRegistryConfig?: CodemodRegistryConfig;
 
-  constructor(config: CodingAgentConfig) {
+  constructor(config: CodingAgentConfig, codemodRegistryConfig?: CodemodRegistryConfig) {
     this.config = config;
+    this.codemodRegistryConfig = codemodRegistryConfig;
   }
 
   async generateCodemod(input: ChangeRequestInput): Promise<CodemodResult> {
-    const { label, fromVersion, toVersion } = this.registryKey(input.packages);
+    const { label, fromVersion, toVersion } = registryKeyFor(input.packages);
     const codemodPath = this.registry.pathFor(label, fromVersion, toVersion);
-    const prompt = this.buildPrompt(input, codemodPath);
+    const remoteName = this.registry.remoteName(label, fromVersion, toVersion);
+    const prompt = this.buildPrompt(input, codemodPath, remoteName);
 
     let stdout: string;
     try {
@@ -46,50 +49,7 @@ export class CodingAgentService {
     return this.parseResult(stdout, codemodPath);
   }
 
-  // Multi-package groups are always scope-siblings grouped together because
-  // they must move together (see SuggestionsModule § Grouping scoped
-  // packages) - the shared scope (e.g. "@angular") is a natural single
-  // registry key, and the widest version span across the group is a
-  // reasonable stand-in for "this exact upgrade" when members don't all
-  // move by the exact same amount (e.g. @angular/core 5->20 but
-  // @angular/router 5->22).
-  private registryKey(packages: ChangeRequestPackage[]): {
-    label: string;
-    fromVersion: string;
-    toVersion: string;
-  } {
-    if (packages.length === 1) {
-      const pkg = packages[0]!;
-      return { label: pkg.name, fromVersion: pkg.version, toVersion: pkg.newVersion };
-    }
-
-    const first = packages[0]!.name;
-    const label = first.startsWith("@")
-      ? first.split("/")[0]!
-      : packages.map((p) => p.name).join("+");
-    return {
-      label,
-      fromVersion: this.extreme(
-        packages.map((p) => p.version),
-        "lt",
-      ),
-      toVersion: this.extreme(
-        packages.map((p) => p.newVersion),
-        "gt",
-      ),
-    };
-  }
-
-  private extreme(versions: string[], keep: "lt" | "gt"): string {
-    return versions.reduce((current, candidate) => {
-      const a = semver.coerce(candidate);
-      const b = semver.coerce(current);
-      if (!a || !b) return current;
-      return (keep === "lt" ? semver.lt(a, b) : semver.gt(a, b)) ? candidate : current;
-    });
-  }
-
-  private buildPrompt(input: ChangeRequestInput, codemodPath: string): string {
+  private buildPrompt(input: ChangeRequestInput, codemodPath: string, remoteName: string): string {
     const callSitesSection = input.isDevDependency
       ? this.buildDevDependencySection(input)
       : this.buildCallSitesSection(input);
@@ -123,7 +83,7 @@ already covers them, verify it still passes and stop there; if it doesn't
 (e.g. it only handles a different import style, or missed part of the API
 surface), extend it rather than starting over. If nothing exists yet,
 scaffold fresh here - \`codemod init . --no-interactive\`.
-
+${this.remoteRegistrySection(remoteName)}
 If extending: do not delete or modify any existing fixture under tests/ -
 those are what keep this codemod correct for every repo that has already
 used it, not just this one. Only add new fixtures alongside them.
@@ -140,6 +100,23 @@ When finished, print exactly one line, with nothing else after it, starting
 with "${RESULT_MARKER}" followed by JSON matching
 { "success": boolean, "codemodPath": string, "reason"?: string } -
 "reason" only if success is false, explaining why you gave up.`;
+  }
+
+  private remoteRegistrySection(remoteName: string): string {
+    if (this.codemodRegistryConfig?.mode !== "remote") return "";
+
+    return `
+Also check the public codemod registry before scaffolding fresh -
+\`npx codemod search "${remoteName}" --scope "${this.codemodRegistryConfig.scope}" --format json\`.
+If a package named exactly "${remoteName}" exists there, inspect it the
+same way you would a local entry (e.g. dry-run it against this repo -
+\`npx codemod run "<name>@<version>" --target . --dry-run --no-interactive\`)
+and judge for yourself whether it actually covers the call sites/usages
+above: reuse or adapt it if so, treat it only as a reference if it's
+partial, or ignore it and scaffold fresh here if it doesn't apply. Don't
+assume a name match means it's usable - verify it the same way you'd
+verify a local entry.
+`;
   }
 
   private describePackages(packages: ChangeRequestPackage[]): string {
@@ -168,11 +145,6 @@ with "${RESULT_MARKER}" followed by JSON matching
 ${callSites}`;
   }
 
-  // devDependencies are never scanned for call sites (see
-  // DependenciesModule.scan) - real usage doesn't show up the same way for
-  // dev tooling (config files, scripts, other devDependencies' own type
-  // declarations), so there's no sample list to hand over. The changelog
-  // summary above plus the agent's own read of the repo is the only input.
   private buildDevDependencySection(input: ChangeRequestInput): string {
     const packageNames = input.packages.map((pkg) => `"${pkg.name}"`).join(", ");
     return `${packageNames} ${input.packages.length === 1 ? "is a" : "are"} devDependency - no call

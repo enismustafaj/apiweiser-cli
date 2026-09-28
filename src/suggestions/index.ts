@@ -1,7 +1,12 @@
 import { resolve } from "node:path";
 import { ChangelogSummarizer } from "../data-sources/changelog-summarizer.ts";
 import { ChangeRequestsModule } from "../change-requests/index.ts";
-import type { CodingAgentConfig, GithubConfig, LlmConfig } from "../config/config.ts";
+import type {
+  CodemodRegistryConfig,
+  CodingAgentConfig,
+  GithubConfig,
+  LlmConfig,
+} from "../config/config.ts";
 import { CallSitesRepository } from "../dependencies/db/call-sites-repository.ts";
 import { db } from "../db/singleton.ts";
 import { SuggestionsRepository } from "./db/suggestions-repository.ts";
@@ -20,9 +25,14 @@ export class SuggestionsModule {
     llmConfig: LlmConfig,
     codingAgentConfig: CodingAgentConfig,
     githubConfig: GithubConfig,
+    codemodRegistryConfig?: CodemodRegistryConfig,
   ) {
     this.changelogSummarizer = new ChangelogSummarizer(llmConfig, githubConfig);
-    this.changeRequests = new ChangeRequestsModule(codingAgentConfig, githubConfig);
+    this.changeRequests = new ChangeRequestsModule(
+      codingAgentConfig,
+      githubConfig,
+      codemodRegistryConfig,
+    );
   }
 
   async generate(repoPath: string): Promise<RenovateUpdate[]> {
