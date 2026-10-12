@@ -2,118 +2,66 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Database } from "../../../src/db/database.ts";
 import { DashboardRepository, PAGE_SIZE } from "../../../src/dashboard/db/dashboard-repository.ts";
-import { CallSitesRepository } from "../../../src/dependencies/db/call-sites-repository.ts";
 import { PackagesRepository } from "../../../src/dependencies/db/packages-repository.ts";
 import type { Dependency } from "../../../src/dependencies/types.ts";
 import { PullRequestsRepository } from "../../../src/github/db/pull-requests-repository.ts";
-import { SuggestionsRepository } from "../../../src/suggestions/db/suggestions-repository.ts";
 
-function seedPackages(db: Database, repoPath: string, dependencies: Dependency[]): Dependency[] {
+function seedPackages(db: Database, repoPath: string, dependencies: Dependency[]): void {
   new PackagesRepository(db).upsert(repoPath, dependencies);
-  return dependencies;
 }
 
-function seedCallSites(
+function seedPullRequest(
   db: Database,
   repoPath: string,
-  dependency: string,
-  sites: { file: string; apiSurface: string; snippet?: string }[],
+  packageName: string,
+  version: string,
+  newVersion: string,
+  url: string,
 ): void {
-  new CallSitesRepository(db).insert(
-    repoPath,
-    sites.map((site, i) => ({
-      dependency,
-      file: `${repoPath}/${site.file}`,
-      line: i + 1,
-      snippet: site.snippet ?? `${site.apiSurface}()`,
-      apiSurface: site.apiSurface,
-    })),
-  );
+  new PullRequestsRepository(db).insert({ repoPath, packageName, version, newVersion, url });
 }
 
-test("listPackages returns page 1 of the scanned packages across repos", () => {
-  const db = new Database(":memory:");
-  seedPackages(db, "/repos/a", [{ name: "commander", currentVersion: "15.0.0", type: "direct" }]);
-
-  const result = new DashboardRepository(db).listPackages({}, 1);
-
-  assert.equal(result.total, 1);
-  assert.equal(result.page, 1);
-  assert.equal(result.totalPages, 1);
-  assert.equal(result.rows.length, 1);
-  assert.equal(result.rows[0]!.repoPath, "/repos/a");
-  assert.equal(result.rows[0]!.name, "commander");
-  assert.equal(result.rows[0]!.currentVersion, "15.0.0");
-  assert.equal(result.rows[0]!.type, "direct");
-  assert.equal(result.rows[0]!.callSites, 0);
-});
-
-test("listPackages paginates once there are more rows than fit on one page", () => {
-  const db = new Database(":memory:");
-  const dependencies = Array.from({ length: PAGE_SIZE + 5 }, (_, i) => ({
-    name: `pkg-${i}`,
-    currentVersion: "1.0.0",
-    type: "direct" as const,
-  }));
-  seedPackages(db, "/repos/a", dependencies);
-  const repo = new DashboardRepository(db);
-
-  const page1 = repo.listPackages({}, 1);
-  const page2 = repo.listPackages({}, 2);
-
-  assert.equal(page1.total, PAGE_SIZE + 5);
-  assert.equal(page1.totalPages, 2);
-  assert.equal(page1.rows.length, PAGE_SIZE);
-  assert.equal(page2.rows.length, 5);
-});
-
-test("listPackages lists direct dependencies first, most-called first", () => {
+test("listPackages returns a repo's direct dependencies by name, without transitive ones", () => {
   const db = new Database(":memory:");
   seedPackages(db, "/repos/a", [
-    { name: "a-transitive", currentVersion: "1.0.0", type: "transitive" },
-    { name: "b-direct-unused", currentVersion: "1.0.0", type: "direct" },
-    { name: "c-direct-used", currentVersion: "1.0.0", type: "direct" },
+    { name: "commander", currentVersion: "15.0.0", type: "direct" },
+    { name: "chalk", currentVersion: "5.0.0", type: "direct" },
+    { name: "ansi-styles", currentVersion: "6.0.0", type: "transitive" },
   ]);
-  seedCallSites(db, "/repos/a", "c-direct-used", [
-    { file: "src/x.ts", apiSurface: "run" },
-    { file: "src/y.ts", apiSurface: "run" },
-  ]);
+  seedPackages(db, "/repos/b", [{ name: "zod", currentVersion: "3.0.0", type: "direct" }]);
 
-  const rows = new DashboardRepository(db).listPackages({}, 1).rows;
+  const result = new DashboardRepository(db).listPackages({ repo: "/repos/a" }, 1);
 
+  assert.equal(result.total, 2);
   assert.deepEqual(
-    rows.map((r) => [r.name, r.callSites]),
+    result.rows.map((r) => ({ ...r })),
     [
-      ["c-direct-used", 2],
-      ["b-direct-unused", 0],
-      ["a-transitive", 0],
+      { name: "chalk", currentVersion: "5.0.0" },
+      { name: "commander", currentVersion: "15.0.0" },
     ],
   );
 });
 
-test("listPackages filters by repo, type, and name search", () => {
+test("listPackages paginates once there are more rows than fit on one page", () => {
   const db = new Database(":memory:");
-  seedPackages(db, "/repos/a", [
-    { name: "chalk", currentVersion: "5.0.0", type: "direct" },
-    { name: "chalk-template", currentVersion: "1.0.0", type: "transitive" },
-    { name: "commander", currentVersion: "15.0.0", type: "direct" },
-  ]);
-  seedPackages(db, "/repos/b", [{ name: "chalk", currentVersion: "4.0.0", type: "direct" }]);
+  seedPackages(
+    db,
+    "/repos/a",
+    Array.from({ length: PAGE_SIZE + 5 }, (_, i) => ({
+      name: `pkg-${String(i).padStart(2, "0")}`,
+      currentVersion: "1.0.0",
+      type: "direct" as const,
+    })),
+  );
+
   const repo = new DashboardRepository(db);
+  const first = repo.listPackages({}, 1);
+  const second = repo.listPackages({}, 2);
 
-  const names = (filter: Parameters<DashboardRepository["listPackages"]>[0]) =>
-    repo.listPackages(filter, 1).rows.map((r) => `${r.repoPath}:${r.name}`);
-
-  assert.deepEqual(names({ repo: "/repos/b" }), ["/repos/b:chalk"]);
-  assert.deepEqual(names({ repo: "/repos/a", type: "direct", q: "chalk" }), ["/repos/a:chalk"]);
-  assert.deepEqual(names({ repo: "/repos/a", q: "chalk" }).sort(), [
-    "/repos/a:chalk",
-    "/repos/a:chalk-template",
-  ]);
-  assert.deepEqual(repo.packageTypeCounts({ repo: "/repos/a", q: "chalk" }), {
-    direct: 1,
-    transitive: 1,
-  });
+  assert.equal(first.rows.length, PAGE_SIZE);
+  assert.equal(first.totalPages, 2);
+  assert.equal(second.rows.length, 5);
+  assert.equal(second.total, PAGE_SIZE + 5);
 });
 
 test("search treats LIKE wildcards in the query literally", () => {
@@ -131,130 +79,70 @@ test("search treats LIKE wildcards in the query literally", () => {
   );
 });
 
-test("listRepos includes repos that only have suggestions or PRs", () => {
-  const db = new Database(":memory:");
-  seedPackages(db, "/repos/a", [{ name: "chalk", currentVersion: "5.0.0", type: "direct" }]);
-  new PullRequestsRepository(db).insert({
-    repoPath: "/repos/b",
-    packageName: "chalk",
-    version: "4.1.0",
-    newVersion: "5.0.0",
-    url: "https://github.com/b/b/pull/1",
-  });
-
-  assert.deepEqual(new DashboardRepository(db).listRepos(), ["/repos/a", "/repos/b"]);
-});
-
-test("summary counts are scoped to the selected repo", () => {
+test("repoSummaries lists every repo, including ones with only PRs", () => {
   const db = new Database(":memory:");
   seedPackages(db, "/repos/a", [
-    { name: "chalk", currentVersion: "5.0.0", type: "direct" },
+    { name: "chalk", currentVersion: "4.1.0", type: "direct" },
     { name: "ansi-styles", currentVersion: "6.0.0", type: "transitive" },
   ]);
-  seedPackages(db, "/repos/b", [{ name: "commander", currentVersion: "15.0.0", type: "direct" }]);
-  seedCallSites(db, "/repos/a", "chalk", [{ file: "src/x.ts", apiSurface: "chalk.red" }]);
+  seedPullRequest(db, "/repos/b", "chalk", "4.1.0", "5.0.0", "https://github.com/b/b/pull/1");
 
-  const repo = new DashboardRepository(db);
-  const a = repo.summary("/repos/a");
-  const all = repo.summary(undefined);
-
-  assert.equal(a.direct, 1);
-  assert.equal(a.transitive, 1);
-  assert.equal(a.callSites, 1);
-  assert.equal(a.packagesWithCallSites, 1);
-  assert.equal(all.direct, 2);
-  assert.equal(repo.summary("/repos/b").callSites, 0);
-});
-
-test("listCallSiteUsage summarises call sites per package", () => {
-  const db = new Database(":memory:");
-  seedPackages(db, "/repos/a", [{ name: "chalk", currentVersion: "5.0.0", type: "direct" }]);
-  seedCallSites(db, "/repos/a", "chalk", [
-    { file: "src/x.ts", apiSurface: "chalk.red" },
-    { file: "src/x.ts", apiSurface: "chalk.green" },
-    { file: "src/y.ts", apiSurface: "chalk.red" },
-  ]);
-
-  const row = new DashboardRepository(db).listCallSiteUsage({}, 1).rows[0]!;
-
-  assert.equal(row.packageName, "chalk");
-  assert.equal(row.callSites, 3);
-  assert.equal(row.files, 2);
-  assert.equal(row.apiSurfaces, 2);
-});
-
-test("listCallSites returns repo-relative files, filterable by API and search", () => {
-  const db = new Database(":memory:");
-  seedPackages(db, "/repos/a", [{ name: "chalk", currentVersion: "5.0.0", type: "direct" }]);
-  seedCallSites(db, "/repos/a", "chalk", [
-    { file: "src/x.ts", apiSurface: "chalk.red" },
-    { file: "src/y.ts", apiSurface: "chalk.green" },
-    { file: "lib/z.ts", apiSurface: "chalk.red" },
-  ]);
-  const repo = new DashboardRepository(db);
-
-  const all = repo.listCallSites({ packageName: "chalk" }, 1).rows;
-  const red = repo.listCallSites({ packageName: "chalk", api: "chalk.red" }, 1).rows;
-  const inSrc = repo.listCallSites({ packageName: "chalk", q: "src/" }, 1).rows;
+  const repos = new DashboardRepository(db).repoSummaries();
 
   assert.deepEqual(
-    all.map((c) => c.file),
-    ["lib/z.ts", "src/x.ts", "src/y.ts"],
-  );
-  assert.deepEqual(
-    red.map((c) => c.file),
-    ["lib/z.ts", "src/x.ts"],
-  );
-  assert.deepEqual(
-    inSrc.map((c) => c.file),
-    ["src/x.ts", "src/y.ts"],
-  );
-  assert.deepEqual(
-    repo.apiSurfaceCounts(undefined, "chalk").map((a) => [a.apiSurface, a.count]),
+    repos.map((r) => ({ ...r })),
     [
-      ["chalk.red", 2],
-      ["chalk.green", 1],
+      { repoPath: "/repos/a", dependencies: 1, pullRequests: 0 },
+      { repoPath: "/repos/b", dependencies: 0, pullRequests: 1 },
     ],
   );
 });
 
-test("listSuggestions returns the newest stored suggestion first", () => {
+test("repoSummaries counts a group PR once and can be scoped to one repo", () => {
   const db = new Database(":memory:");
-  new SuggestionsRepository(db).insert("/repos/a", [
-    {
-      dependency: "commander",
-      packageFile: "package.json",
-      depType: "dependencies",
-      currentVersion: "15.0.0",
-      newVersion: "16.0.0",
-      updateType: "major",
-      datasource: "npm",
-    },
-  ]);
+  const url = "https://github.com/a/a/pull/7";
+  seedPullRequest(db, "/repos/a", "@angular/core", "5.2.9", "6.1.10", url);
+  seedPullRequest(db, "/repos/a", "@angular/common", "5.2.9", "6.1.10", url);
+  seedPackages(db, "/repos/b", [{ name: "zod", currentVersion: "3.0.0", type: "direct" }]);
 
-  const result = new DashboardRepository(db).listSuggestions({}, 1);
+  const repos = new DashboardRepository(db).repoSummaries("/repos/a");
 
-  assert.equal(result.total, 1);
-  assert.equal(result.rows.length, 1);
-  assert.equal(result.rows[0]!.dependency, "commander");
-  assert.equal(result.rows[0]!.newVersion, "16.0.0");
+  assert.equal(repos.length, 1);
+  assert.equal(repos[0]!.pullRequests, 1);
 });
 
-test("listPullRequests returns the newest opened PR first", () => {
+test("listPullRequests gathers a group PR's packages into one row", () => {
   const db = new Database(":memory:");
-  new PullRequestsRepository(db).insert({
-    repoPath: "/repos/a",
-    packageName: "chalk",
-    version: "4.1.0",
-    newVersion: "5.0.0",
-    url: "https://github.com/a/a/pull/1",
-  });
+  const url = "https://github.com/a/a/pull/7";
+  seedPullRequest(db, "/repos/a", "@angular/core", "5.2.9", "6.1.10", url);
+  seedPullRequest(db, "/repos/a", "@angular/common", "5.2.9", "6.1.10", url);
+  seedPullRequest(db, "/repos/a", "chalk", "4.1.0", "5.0.0", "https://github.com/a/a/pull/8");
 
-  const result = new DashboardRepository(db).listPullRequests({}, 1);
+  const result = new DashboardRepository(db).listPullRequests({ repo: "/repos/a" }, 1);
 
-  assert.equal(result.total, 1);
-  assert.equal(result.rows.length, 1);
-  assert.equal(result.rows[0]!.url, "https://github.com/a/a/pull/1");
+  assert.equal(result.total, 2);
+  const group = result.rows.find((r) => r.url === url)!;
+  assert.deepEqual(group.packages.map((p) => p.name).sort(), ["@angular/common", "@angular/core"]);
+  assert.deepEqual(group.packages[0]!.version, "5.2.9");
+  assert.deepEqual(group.packages[0]!.newVersion, "6.1.10");
+});
+
+test("listPullRequests search matches any package and returns the whole PR", () => {
+  const db = new Database(":memory:");
+  const url = "https://github.com/a/a/pull/7";
+  seedPullRequest(db, "/repos/a", "@angular/core", "5.2.9", "6.1.10", url);
+  seedPullRequest(db, "/repos/a", "rxjs", "5.5.7", "6.6.7", url);
+  seedPullRequest(db, "/repos/a", "chalk", "4.1.0", "5.0.0", "https://github.com/a/a/pull/8");
+  seedPullRequest(db, "/repos/b", "rxjs", "5.5.7", "6.6.7", "https://github.com/b/b/pull/1");
+
+  const rows = new DashboardRepository(db).listPullRequests(
+    { repo: "/repos/a", q: "rxjs" },
+    1,
+  ).rows;
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.url, url);
+  assert.equal(rows[0]!.packages.length, 2);
 });
 
 test("an out-of-range page number returns an empty rows array, not an error", () => {

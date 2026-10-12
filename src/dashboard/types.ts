@@ -5,76 +5,38 @@ export interface Page<T> {
   total: number;
 }
 
-export type Tab = "packages" | "call-sites" | "suggestions" | "pull-requests";
-
-export type PackageType = "direct" | "transitive";
+export type Tab = "packages" | "pull-requests";
 
 // Everything the page can be filtered by, straight off the query string.
-// `repo` undefined means "every repo".
+// `repo` undefined means the repo list; set, it's that repo's view.
 export interface DashboardState {
   tab: Tab;
   repo?: string;
   q?: string;
-  type?: PackageType;
-  package?: string;
-  api?: string;
   page: number;
 }
 
-export interface Summary {
-  direct: number;
-  transitive: number;
-  callSites: number;
-  packagesWithCallSites: number;
-  suggestions: number;
+export interface RepoSummary {
+  repoPath: string;
+  dependencies: number;
   pullRequests: number;
 }
 
 export interface PackageRow {
-  repoPath: string;
   name: string;
   currentVersion: string;
-  type: string;
-  callSites: number;
 }
 
-export interface CallSiteUsageRow {
-  repoPath: string;
-  packageName: string;
-  type: string;
-  callSites: number;
-  files: number;
-  apiSurfaces: number;
-}
-
-export interface CallSiteRow {
-  repoPath: string;
-  packageName: string;
-  file: string;
-  line: number;
-  snippet: string;
-  apiSurface: string;
-}
-
-export interface ApiSurfaceCount {
-  apiSurface: string;
-  count: number;
-}
-
-export interface SuggestionRow {
-  repoPath: string;
-  dependency: string;
-  currentVersion: string;
-  newVersion: string;
-  updateType: string;
-  scannedAt: string;
-}
-
-export interface PullRequestRow {
-  repoPath: string;
-  packageName: string;
+export interface PullRequestPackage {
+  name: string;
   version: string;
   newVersion: string;
+}
+
+// One opened PR. A group PR bumps several packages at once and is stored
+// as one row per package, so they're gathered back up here.
+export interface PullRequestRow {
   url: string;
   openedAt: string;
+  packages: PullRequestPackage[];
 }

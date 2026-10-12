@@ -6,17 +6,19 @@ import { Hono } from "hono";
 import { join } from "node:path";
 import type { Database } from "../db/database.ts";
 import { DashboardRepository } from "./db/dashboard-repository.ts";
-import { dashboardPage, type TabContent } from "./pages.ts";
-import type { DashboardState, PackageType, Tab } from "./types.ts";
+import { repoPage, reposPage, type TabContent } from "./pages.ts";
+import type { DashboardState, Tab } from "./types.ts";
 
 const STATIC_DIR = join(import.meta.dirname, "static");
 
-const TABS = new Set<Tab>([
-  "packages",
-  "call-sites",
-  "suggestions",
-  "pull-requests",
-]);
+// Older links to the suggestions or updates tabs land on pull requests.
+// Anything else unknown falls back to packages.
+const TAB_ALIASES: Record<string, Tab> = {
+  packages: "packages",
+  "pull-requests": "pull-requests",
+  suggestions: "pull-requests",
+  updates: "pull-requests",
+};
 
 function pageParam(value: string | undefined): number {
   const parsed = Number(value);
@@ -28,32 +30,12 @@ function text(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-// Packages default to direct dependencies - transitive ones outnumber them
-// ~15:1 on a real repo and are rarely what anyone came to look at.
-// `type=all` is the explicit opt-out.
-function typeParam(value: string | undefined): PackageType | undefined {
-  if (value === "all") return undefined;
-  if (value === "transitive") return "transitive";
-  return "direct";
-}
-
-// No `repo` param means "pick for me": the only repo if there's exactly
-// one (the common case - one CLI per repo), otherwise every repo.
-// `repo=` (the "All repos" option) always means every repo.
-function repoParam(value: string | undefined, repos: string[]): string | undefined {
-  if (value === undefined) return repos.length === 1 ? repos[0] : undefined;
-  return repos.includes(value) ? value : undefined;
-}
-
+// An unknown repo shows the repo list rather than an empty repo view.
 export function parseState(query: Record<string, string>, repos: string[]): DashboardState {
-  const tab = TABS.has(query.tab as Tab) ? (query.tab as Tab) : "packages";
   return {
-    tab,
-    repo: repoParam(query.repo, repos),
+    tab: TAB_ALIASES[query.tab ?? ""] ?? "packages",
+    repo: query.repo !== undefined && repos.includes(query.repo) ? query.repo : undefined,
     q: text(query.q),
-    type: tab === "packages" ? typeParam(query.type) : undefined,
-    package: text(query.package),
-    api: text(query.api),
     page: pageParam(query.page),
   };
 }
@@ -62,26 +44,7 @@ function tabContent(repository: DashboardRepository, state: DashboardState): Tab
   const filter = { repo: state.repo, q: state.q };
   switch (state.tab) {
     case "packages":
-      return {
-        tab: "packages",
-        page: repository.listPackages({ ...filter, type: state.type }, state.page),
-        typeCounts: repository.packageTypeCounts(filter),
-      };
-    case "call-sites":
-      if (state.package) {
-        return {
-          tab: "call-sites",
-          packageName: state.package,
-          page: repository.listCallSites(
-            { ...filter, packageName: state.package, api: state.api },
-            state.page,
-          ),
-          apiSurfaces: repository.apiSurfaceCounts(state.repo, state.package),
-        };
-      }
-      return { tab: "call-sites", page: repository.listCallSiteUsage(filter, state.page) };
-    case "suggestions":
-      return { tab: "suggestions", page: repository.listSuggestions(filter, state.page) };
+      return { tab: "packages", page: repository.listPackages(filter, state.page) };
     case "pull-requests":
       return { tab: "pull-requests", page: repository.listPullRequests(filter, state.page) };
   }
@@ -92,17 +55,15 @@ export function createServer(db: Database): Hono {
   const app = new Hono();
 
   app.get("/", (c) => {
-    const repos = dashboardRepository.listRepos();
-    const state = parseState(c.req.query(), repos);
-
-    return c.html(
-      dashboardPage({
-        state,
-        repos,
-        summary: dashboardRepository.summary(state.repo),
-        content: tabContent(dashboardRepository, state),
-      }),
+    const repos = dashboardRepository.repoSummaries();
+    const state = parseState(
+      c.req.query(),
+      repos.map((r) => r.repoPath),
     );
+    const summary = repos.find((r) => r.repoPath === state.repo);
+
+    if (!summary) return c.html(reposPage(repos));
+    return c.html(repoPage({ state, summary, content: tabContent(dashboardRepository, state) }));
   });
 
   app.use("/*", serveStatic({ root: STATIC_DIR }));

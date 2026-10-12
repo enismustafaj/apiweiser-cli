@@ -146,8 +146,8 @@ packages — separate from whatever repo is actually being scanned.
 apiweiser-cli dashboard --port 3000
 ```
 
-A local, read-only web view over that same sqlite db — dependencies and
-where the code calls them, Renovate suggestions, and PRs opened so far — see
+A local, read-only web view over that same sqlite db — the scanned repos,
+each one's dependencies, and the migration PRs opened for them — see
 [`docs/dashboard.md`](./docs/dashboard.md).
 
 ## What to expect

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Database } from "../../src/db/database.ts";
 import { PAGE_SIZE } from "../../src/dashboard/db/dashboard-repository.ts";
-import { CallSitesRepository } from "../../src/dependencies/db/call-sites-repository.ts";
 import { PackagesRepository } from "../../src/dependencies/db/packages-repository.ts";
 import { PullRequestsRepository } from "../../src/github/db/pull-requests-repository.ts";
 import { createServer, parseState } from "../../src/dashboard/server.ts";
@@ -13,70 +12,88 @@ async function get(db: Database, path: string): Promise<string> {
   return res.text();
 }
 
-test("GET / renders the direct packages of the only scanned repo", async () => {
+function repoUrl(repoPath: string, rest = ""): string {
+  return `/?repo=${encodeURIComponent(repoPath)}${rest}`;
+}
+
+test("GET / lists the scanned repos, even when there's only one", async () => {
   const db = new Database(":memory:");
-  new PackagesRepository(db).upsert("/repos/long/path/to/my-app", [
+  new PackagesRepository(db).upsert("/home/me/code/my-app", [
     { name: "commander", currentVersion: "15.0.0", type: "direct" },
-    { name: "ansi-styles", currentVersion: "6.0.0", type: "transitive" },
   ]);
 
   const body = await get(db, "/");
 
-  assert.match(body, /commander/);
-  assert.match(body, /15\.0\.0/);
-  // Direct only by default; the transitive one is just counted in the toggle.
-  assert.doesNotMatch(body, /<strong>ansi-styles<\/strong>/);
-  assert.match(body, /Transitive <span class="count">1<\/span>/);
-  // One repo: named in the header, no per-row Repo column.
-  assert.match(body, /<span class="crumb" title="\/repos\/long\/path\/to\/my-app">my-app<\/span>/);
-  assert.doesNotMatch(body, /<th>Repo<\/th>/);
+  assert.match(body, /<h1>Repositories<\/h1>/);
+  assert.match(body, /<strong>my-app<\/strong>/);
+  assert.match(body, /href="\/\?repo=%2Fhome%2Fme%2Fcode%2Fmy-app"/);
+  // The repo's packages are one click away, not on the landing page.
+  assert.doesNotMatch(body, /commander/);
 });
 
-test("GET /?tab=packages&type=all shows transitive packages too", async () => {
+test("GET / with no repos explains how to scan one", async () => {
+  assert.match(await get(new Database(":memory:"), "/"), /No repositories scanned yet\./);
+});
+
+test("GET /?repo=... shows that repo's direct dependencies", async () => {
   const db = new Database(":memory:");
-  new PackagesRepository(db).upsert("/repos/a", [
+  new PackagesRepository(db).upsert("/repos/my-app", [
     { name: "commander", currentVersion: "15.0.0", type: "direct" },
     { name: "ansi-styles", currentVersion: "6.0.0", type: "transitive" },
   ]);
-
-  const body = await get(db, "/?tab=packages&type=all");
-
-  assert.match(body, /<strong>ansi-styles<\/strong>/);
-  assert.match(body, /<th>Type<\/th>/);
-});
-
-test("GET / across several repos shows a repo picker and a short Repo column", async () => {
-  const db = new Database(":memory:");
-  const packages = new PackagesRepository(db);
-  packages.upsert("/home/me/code/api", [
-    { name: "commander", currentVersion: "15.0.0", type: "direct" },
-  ]);
-  packages.upsert("/home/me/code/web", [
+  new PackagesRepository(db).upsert("/repos/other", [
     { name: "chalk", currentVersion: "5.0.0", type: "direct" },
   ]);
 
-  const body = await get(db, "/");
+  const body = await get(db, repoUrl("/repos/my-app"));
 
-  assert.match(body, /<select name="repo"/);
-  assert.match(body, /All repos \(2\)/);
-  assert.match(body, /<th>Repo<\/th>/);
-  assert.match(body, /title="\/home\/me\/code\/web">web<\/span>/);
-
-  const scoped = await get(db, "/?repo=%2Fhome%2Fme%2Fcode%2Fweb");
-  assert.match(scoped, /chalk/);
-  assert.doesNotMatch(scoped, /commander/);
+  assert.match(body, /<span class="crumb">my-app<\/span>/);
+  assert.match(body, /<strong>commander<\/strong>/);
+  assert.match(body, /15\.0\.0/);
+  assert.doesNotMatch(body, /ansi-styles/);
+  assert.doesNotMatch(body, /chalk/);
 });
 
-test("GET / renders empty states when the db is empty", async () => {
+test("GET /?repo=...&tab=pull-requests shows one row per PR with its packages", async () => {
   const db = new Database(":memory:");
+  const prs = new PullRequestsRepository(db);
+  const url = "https://github.com/a/a/pull/12";
+  prs.insert({
+    repoPath: "/repos/a",
+    packageName: "@angular/core",
+    version: "5.2.9",
+    newVersion: "6.1.10",
+    url,
+  });
+  prs.insert({
+    repoPath: "/repos/a",
+    packageName: "rxjs",
+    version: "5.5.7",
+    newVersion: "6.6.7",
+    url,
+  });
 
-  assert.match(await get(db, "/"), /No packages scanned yet\./);
-  assert.match(await get(db, "/?tab=call-sites"), /No call sites recorded yet\./);
-  assert.match(await get(db, "/?tab=suggestions"), /No suggestions yet/);
-  assert.match(await get(db, "/?tab=pull-requests"), /No PRs opened yet\./);
+  const body = await get(db, repoUrl("/repos/a", "&tab=pull-requests"));
+
+  assert.match(body, /<h1>Pull requests<\/h1>/);
+  assert.equal([...body.matchAll(/href="https:\/\/github\.com\/a\/a\/pull\/12"/g)].length, 1);
+  assert.match(body, /#12 ↗/);
+  assert.match(body, /5\.2\.9 → 6\.1\.10/);
+  assert.match(body, /5\.5\.7 → 6\.6\.7/);
 });
 
-test("GET /?tab=pull-requests renders opened PRs", async () => {
+test("old suggestions and updates links land on the pull requests tab", async () => {
+  const db = new Database(":memory:");
+  new PackagesRepository(db).upsert("/repos/a", [
+    { name: "commander", currentVersion: "15.0.0", type: "direct" },
+  ]);
+
+  for (const tab of ["suggestions", "updates"]) {
+    assert.match(await get(db, repoUrl("/repos/a", `&tab=${tab}`)), /<h1>Pull requests<\/h1>/);
+  }
+});
+
+test("GET /?repo=... renders empty states", async () => {
   const db = new Database(":memory:");
   new PullRequestsRepository(db).insert({
     repoPath: "/repos/a",
@@ -85,89 +102,57 @@ test("GET /?tab=pull-requests renders opened PRs", async () => {
     newVersion: "5.0.0",
     url: "https://github.com/a/a/pull/1",
   });
-
-  const body = await get(db, "/?tab=pull-requests");
-
-  assert.match(body, /View PR/);
-  assert.match(body, /4\.1\.0 → 5\.0\.0/);
-});
-
-test("GET /?tab=call-sites&package=... drills into one package's call sites", async () => {
-  const db = new Database(":memory:");
-  new PackagesRepository(db).upsert("/repos/a", [
-    { name: "chalk", currentVersion: "5.0.0", type: "direct" },
-  ]);
-  new CallSitesRepository(db).insert("/repos/a", [
-    {
-      dependency: "chalk",
-      file: "/repos/a/src/log.ts",
-      line: 3,
-      snippet: "chalk.red(msg)",
-      apiSurface: "chalk.red",
-    },
-    {
-      dependency: "chalk",
-      file: "/repos/a/src/log.ts",
-      line: 9,
-      snippet: "chalk.green(\n  msg,\n)",
-      apiSurface: "chalk.green",
-    },
+  new PackagesRepository(db).upsert("/repos/b", [
+    { name: "commander", currentVersion: "15.0.0", type: "direct" },
   ]);
 
-  const body = await get(db, "/?tab=call-sites&package=chalk");
-
-  assert.match(body, /src\/log\.ts:3/);
-  assert.doesNotMatch(body, /\/repos\/a\/src/);
-  assert.match(body, /2 call sites across 2 APIs/);
-  // Multi-line snippets fold behind their first line.
-  assert.match(body, /<details class="snippet">/);
-  assert.match(body, /\+2 lines/);
+  assert.match(await get(db, repoUrl("/repos/a")), /No direct dependencies recorded/);
+  assert.match(await get(db, repoUrl("/repos/b", "&tab=pull-requests")), /No PRs opened yet\./);
 });
 
-test("GET /?tab=packages&page=2 renders the second page", async () => {
+test("GET /?repo=...&page=2 renders the second page", async () => {
   const db = new Database(":memory:");
-  const dependencies = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => ({
-    name: `pkg-${i}`,
-    currentVersion: "1.0.0",
-    type: "direct" as const,
-  }));
-  new PackagesRepository(db).upsert("/repos/a", dependencies);
+  new PackagesRepository(db).upsert(
+    "/repos/a",
+    Array.from({ length: PAGE_SIZE + 1 }, (_, i) => ({
+      name: `pkg-${i}`,
+      currentVersion: "1.0.0",
+      type: "direct" as const,
+    })),
+  );
 
-  const body = await get(db, "/?tab=packages&page=2");
+  const body = await get(db, repoUrl("/repos/a", "&page=2"));
 
   assert.match(body, /Page 2 of 2/);
   assert.equal([...body.matchAll(/<strong>pkg-\d+<\/strong>/g)].length, 1);
 });
 
-test("GET /?tab=breaking-changes falls back to the packages tab now that it's gone", async () => {
-  const db = new Database(":memory:");
-
-  assert.match(await get(db, "/?tab=breaking-changes"), /No packages scanned yet\./);
-});
-
-test("GET / with a garbage page param falls back to page 1 instead of erroring", async () => {
+test("an unknown repo falls back to the repo list", async () => {
   const db = new Database(":memory:");
   new PackagesRepository(db).upsert("/repos/a", [
     { name: "commander", currentVersion: "15.0.0", type: "direct" },
   ]);
 
-  assert.match(await get(db, "/?page=not-a-number"), /commander/);
+  assert.match(await get(db, repoUrl("/repos/nope")), /<h1>Repositories<\/h1>/);
 });
 
 test("search input is escaped when echoed back into the page", async () => {
   const db = new Database(":memory:");
+  new PackagesRepository(db).upsert("/repos/a", [
+    { name: "commander", currentVersion: "15.0.0", type: "direct" },
+  ]);
 
-  const body = await get(db, "/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E");
+  const body = await get(db, repoUrl("/repos/a", "&q=%3Cscript%3Ealert(1)%3C%2Fscript%3E"));
 
   assert.doesNotMatch(body, /<script>alert/);
 });
 
-test("parseState picks the only repo, ignores unknown repos, and defaults to direct", () => {
-  assert.equal(parseState({}, ["/a"]).repo, "/a");
-  assert.equal(parseState({}, ["/a", "/b"]).repo, undefined);
-  assert.equal(parseState({ repo: "" }, ["/a"]).repo, undefined);
-  assert.equal(parseState({ repo: "/nope" }, ["/a", "/b"]).repo, undefined);
-  assert.equal(parseState({}, []).type, "direct");
-  assert.equal(parseState({ type: "all" }, []).type, undefined);
+test("parseState ignores unknown repos, tabs, and page numbers", () => {
+  assert.equal(parseState({}, ["/a"]).repo, undefined);
+  assert.equal(parseState({ repo: "/a" }, ["/a"]).repo, "/a");
+  assert.equal(parseState({ repo: "/nope" }, ["/a"]).repo, undefined);
   assert.equal(parseState({ tab: "bogus" }, []).tab, "packages");
+  assert.equal(parseState({ tab: "call-sites" }, []).tab, "packages");
+  assert.equal(parseState({ tab: "updates" }, []).tab, "pull-requests");
+  assert.equal(parseState({ page: "not-a-number" }, []).page, 1);
 });
