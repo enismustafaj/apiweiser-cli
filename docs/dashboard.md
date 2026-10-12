@@ -1,8 +1,9 @@
 # Dashboard
 
 `src/dashboard/` — a local, read-only, server-rendered view over the same
-`~/.apiweiser-cli/db.sqlite` every other module writes to: what packages
-are known, what Renovate suggested, and what PRs have actually been opened
+`~/.apiweiser-cli/db.sqlite` every other module writes to: which repos
+have been scanned, each repo's direct dependencies, and the migration PRs
+opened for it
 (see [`docs/database.md`](./database.md)).
 
 ## Running it
@@ -21,26 +22,39 @@ scans or writes anything itself.
 
 Its own repository, not bolted onto `PackagesRepository`/
 `SuggestionsRepository`/`PullRequestsRepository` - those are shaped around
-what each module needs to _write_; this one only reads, across every repo
-the CLI has ever scanned (`packages`/`suggestions`/`pull_requests` aren't
-scoped to one repo path from a dashboard's point of view - the whole point
-is seeing everything at once).
+what each module needs to _write_; this one only reads.
 
-`listPackages(page)`, `listSuggestions(page)`, and `listPullRequests(page)`
-each take a 1-based page number and return a `Page<T>` (every
-`(repo_path, package)` row for packages, newest-scanned-first for
-suggestions, newest-opened-first for pull requests). `page` is 1-based; `Page<T>` is `{ rows, page, totalPages, total }`. All
-three share one `paginate()` private helper (same shape: a plain table, no
-filters, just a different query and a fixed `PAGE_SIZE` of 20) - a `COUNT(*)`
-plus a `LIMIT ? OFFSET ?`, run as two separate queries rather than a single
-window-function query, since these tables are small enough that the extra
-round trip doesn't matter and two plain queries are easier to read. An
-out-of-range page number (or a garbage one - see `server.ts`'s `pageParam`)
-just comes back with an empty `rows`, not an error.
+- `repoSummaries(repo?)` - the repo list: every repo with packages or PRs
+  (a PR can outlive a re-scan), with its direct dependency and PR counts. Given a `repo`, just that one - its
+  counts are the numbers on the cards. A group PR is one `pull_requests`
+  row per package, so PRs are counted by distinct URL.
+
+Every list method takes a filter object plus a 1-based page number and
+returns a `Page<T>` (`{ rows, page, totalPages, total }`, `PAGE_SIZE` of 20):
+
+- `listPackages({ repo, q })` - direct dependencies only, by name.
+  Transitive ones aren't something the pipeline acts on yet.
+- `listPullRequests({ repo, q })` - one row per PR, newest first. A group
+  PR is stored as one row per package; they're gathered back up with
+  `json_group_array` so the PR shows once, listing every package it bumps.
+  `q` matches any of its packages and still returns the whole PR.
+
+Renovate's suggestions aren't shown: they're an intermediate step towards
+a PR, not something to act on from here.
+
+Filters are written as `($x IS NULL OR col = $x)` with named parameters, so
+each query is one fixed statement rather than a WHERE clause assembled from
+pieces; an undefined filter is passed as `NULL`. `q` is a substring match
+with LIKE's own `%`/`_` escaped, so searching `foo_bar` doesn't also match
+`fooXbar`.
+
+The count and the page are still two plain queries sharing one WHERE clause
+(`paginate()`), and an out-of-range page (or a garbage one - see
+`server.ts`'s `pageParam`) just comes back with empty `rows`, not an error.
 
 ## Server-rendered, not a JSON API + client fetch
 
-`pages.ts` builds the whole page - stats, all three tables - straight from
+`pages.ts` builds the whole page - cards and table - straight from
 `DashboardRepository`'s query results, on the server, for every request.
 There's no `/api/*` JSON endpoint and no client-side fetch/render step: the
 browser gets a complete, populated HTML document on `GET /`.
@@ -68,42 +82,59 @@ fragments flattening automatically), just template literals instead of a
 JSX transform, so it runs exactly the same way as every other `.ts` file in
 this repo.
 
-## CSS-only tabs
+## Navigation: everything is a link or a GET form
 
-The three sections (Packages/Suggestions/Pull requests) are all rendered
-into the page at once and switched between with three hidden radio inputs
-plus `:checked ~` sibling selectors in `static/style.css` - no
-client-side JS at all. Consistent with server-rendering the whole page:
-there's no client-side state to manage, so there's no reason to reach for
-a script just to toggle which `<section>` is visible.
+`/` is the repo list. Picking a repo opens its view, with two summary
+cards (dependencies, pull requests) that _are_ the tabs - each number is also
+the way into its list, so there's no separate tab bar repeating them. Only
+the active tab is queried and rendered. The brand in the top bar, and
+"← All repositories" above the heading, go back to the list.
 
-## Pagination, also links rather than JS
+All state lives in the query string, and every control is a plain link or a
+`method="get"` form, so any view can be bookmarked or shared and the back
+button works:
 
-Same reasoning as the tabs: the page is already fully server-rendered, so
-"Prev"/"Next" are plain `<a href="/?tab=...&packagesPage=...&...">` links,
-not a client-side fetch-more. Each of the three tables paginates
-independently, `PAGE_SIZE` (20) rows at a time.
+| Param  | Meaning                                                                 |
+| ------ | ----------------------------------------------------------------------- |
+| `repo` | Absolute repo path. Absent or unknown: the repo list.                   |
+| `tab`  | `packages` (default) or `pull-requests`. `suggestions`/`updates` → PRs. |
+| `q`    | Search by dependency name                                               |
+| `page` | 1-based page of the active tab                                          |
 
-The query string carries all four bits of state at once - `tab`,
-`packagesPage`, `suggestionsPage`, `pullRequestsPage` - because the three
-tables are independent (paging through Suggestions shouldn't reset
-whichever page you'd scrolled Packages to) and because `tab` needs to
-survive the reload too: following a pagination link is a real navigation,
-so without `tab` in the URL the page would always re-render with the
-Packages tab pre-selected, even if you were paging through Pull requests.
-`server.ts` reads all four off `c.req.query()`; `pages.ts`'s `hrefFor`
-builds links that keep the other three untouched and only change the one
-being paged.
+Switching tabs keeps `repo` and drops the rest. The only script on the page
+is `/` focusing the search box.
+
+Repo paths are absolute and can run to hundreds of characters, so the repo
+list shows the directory name with the full path underneath, truncated,
+and a repo's view names it once in the top bar and the heading.
+
+## Styling
+
+`static/style.css` is the whole design - no CSS framework. It's a set of
+colour/radius/font tokens on `:root`, dark by default and switched to a
+light palette under `prefers-color-scheme: light`, with Geist and Geist
+Mono loaded from Google Fonts (falling back to the system UI and monospace
+fonts offline). The metrics strip and the toolbar/table/pagination card are
+plain elements styled there.
+
+The stylesheet is linked as `/style.css?v=<hash>`, a hash of its contents
+taken at startup. `serveStatic` sends no cache headers, so without it
+browsers keep reusing a stale copy after the CSS changes.
+
+The top bar uses `logo-mark.png`, the `{◎}` mark cropped out of `logo.png`,
+next to the wordmark set in text. Both images are black on transparent, so
+the mark is inverted on the dark theme.
 
 ## `createServer(db)`
 
 Two things mounted on the Hono app:
 
-- `GET /` - reads `tab`/`packagesPage`/`suggestionsPage`/`pullRequestsPage`
-  off the query string, calls `DashboardRepository`'s three list methods
-  with the requested page, and returns `dashboardPage(...)` via
-  `c.html(...)`.
-- `static/` (Pico.css overrides, the tab/pagination CSS, and the logo), via
+- `GET /` - `parseState()` turns the query string into a `DashboardState`
+  (validating `tab`/`page`, and only accepting a `repo` that's in
+  `repoSummaries()`). With no valid repo it renders `reposPage(...)`;
+  otherwise `tabContent()` runs just the queries the active tab needs and
+  `repoPage(...)` renders it.
+- `static/` (the stylesheet and the logo), via
   `@hono/node-server/serve-static`, mounted at `/*` after the `/` route.
 
 `serveStatic`'s `root` is resolved from `import.meta.dirname`, not
