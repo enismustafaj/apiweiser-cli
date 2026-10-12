@@ -1,8 +1,9 @@
 # Dashboard
 
 `src/dashboard/` — a local, read-only, server-rendered view over the same
-`~/.apiweiser-cli/db.sqlite` every other module writes to: what packages
-are known, what Renovate suggested, and what PRs have actually been opened
+`~/.apiweiser-cli/db.sqlite` every other module writes to: which
+dependencies a repo has and how heavily its code calls them, what Renovate
+suggested, and what PRs have actually been opened
 (see [`docs/database.md`](./database.md)).
 
 ## Running it
@@ -21,22 +22,41 @@ scans or writes anything itself.
 
 Its own repository, not bolted onto `PackagesRepository`/
 `SuggestionsRepository`/`PullRequestsRepository` - those are shaped around
-what each module needs to _write_; this one only reads, across every repo
-the CLI has ever scanned (`packages`/`suggestions`/`pull_requests` aren't
-scoped to one repo path from a dashboard's point of view - the whole point
-is seeing everything at once).
+what each module needs to _write_; this one only reads, and every query is a
+"show me everything that matches" report across whichever repos are
+selected.
 
-`listPackages(page)`, `listSuggestions(page)`, and `listPullRequests(page)`
-each take a 1-based page number and return a `Page<T>` (every
-`(repo_path, package)` row for packages, newest-scanned-first for
-suggestions, newest-opened-first for pull requests). `page` is 1-based; `Page<T>` is `{ rows, page, totalPages, total }`. All
-three share one `paginate()` private helper (same shape: a plain table, no
-filters, just a different query and a fixed `PAGE_SIZE` of 20) - a `COUNT(*)`
-plus a `LIMIT ? OFFSET ?`, run as two separate queries rather than a single
-window-function query, since these tables are small enough that the extra
-round trip doesn't matter and two plain queries are easier to read. An
-out-of-range page number (or a garbage one - see `server.ts`'s `pageParam`)
-just comes back with an empty `rows`, not an error.
+Every list method takes a filter object plus a 1-based page number and
+returns a `Page<T>` (`{ rows, page, totalPages, total }`, `PAGE_SIZE` of 20):
+
+- `listPackages({ repo, q, type })` - direct dependencies first, then by
+  call-site count, then name. Each row carries its call-site count.
+- `listCallSiteUsage({ repo, q })` - one row per package that has call
+  sites: how many, across how many files, using how many distinct APIs.
+- `listCallSites({ repo, q, packageName, api })` - one package's call
+  sites, `file` made relative to `repo_path` (stored absolute, it repeats a
+  potentially very long repo path on every row). `q` searches the file path
+  and the snippet.
+- `listSuggestions({ repo, q })`, `listPullRequests({ repo, q })` - newest
+  first.
+
+Plus the non-paginated pieces the page needs around them: `listRepos()`
+(every repo any table has a row for - a suggestion or PR can outlive a
+re-scan), `summary(repo)` (the numbers on the cards),
+`packageTypeCounts(filter)` (the Direct/Transitive/All toggle labels), and
+`apiSurfaceCounts(repo, packageName)` (the API chips on a package's
+call-site view).
+
+Filters are written as `($x IS NULL OR col = $x)` with named parameters, so
+each query is one fixed statement rather than a WHERE clause assembled from
+pieces; an undefined filter is passed as `NULL`. `q` is a substring match
+with LIKE's own `%`/`_` escaped, so searching `foo_bar` doesn't also match
+`fooXbar`. Call-site counts are `LEFT JOIN`ed from a grouped subquery rather than counted per row - `call_sites` has no index on
+`package_id`, and a real scan (got) has 10.7k rows.
+
+The count and the page are still two plain queries sharing one WHERE clause
+(`paginate()`), and an out-of-range page (or a garbage one - see
+`server.ts`'s `pageParam`) just comes back with empty `rows`, not an error.
 
 ## Server-rendered, not a JSON API + client fetch
 
@@ -68,42 +88,72 @@ fragments flattening automatically), just template literals instead of a
 JSX transform, so it runs exactly the same way as every other `.ts` file in
 this repo.
 
-## CSS-only tabs
+## Navigation: everything is a link or a GET form
 
-The three sections (Packages/Suggestions/Pull requests) are all rendered
-into the page at once and switched between with three hidden radio inputs
-plus `:checked ~` sibling selectors in `static/style.css` - no
-client-side JS at all. Consistent with server-rendering the whole page:
-there's no client-side state to manage, so there's no reason to reach for
-a script just to toggle which `<section>` is visible.
+The four summary cards at the top (direct dependencies, call sites,
+suggested updates, PRs opened) _are_ the tabs - each number is also the way
+into its list, so there's no separate tab bar repeating the same four
+things. Only the active tab is queried and rendered.
 
-## Pagination, also links rather than JS
+All state lives in the query string, and every control is a plain link or a
+`method="get"` form, so any view can be bookmarked or shared and the back
+button works:
 
-Same reasoning as the tabs: the page is already fully server-rendered, so
-"Prev"/"Next" are plain `<a href="/?tab=...&packagesPage=...&...">` links,
-not a client-side fetch-more. Each of the three tables paginates
-independently, `PAGE_SIZE` (20) rows at a time.
+| Param     | Meaning                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------- |
+| `tab`     | `packages` (default), `call-sites`, `suggestions`, `pull-requests`                           |
+| `repo`    | Absolute repo path. Absent: the only repo if there's exactly one, otherwise all. Empty: all. |
+| `q`       | Search. Package/dependency name, or file path and code on a package's call-site view.        |
+| `type`    | Packages only: `direct` (default), `transitive`, or `all`                                    |
+| `package` | Call sites only: drill into one package                                                      |
+| `api`     | Call sites only: narrow a package's call sites to one API                                    |
+| `page`    | 1-based page of the active tab                                                               |
 
-The query string carries all four bits of state at once - `tab`,
-`packagesPage`, `suggestionsPage`, `pullRequestsPage` - because the three
-tables are independent (paging through Suggestions shouldn't reset
-whichever page you'd scrolled Packages to) and because `tab` needs to
-survive the reload too: following a pagination link is a real navigation,
-so without `tab` in the URL the page would always re-render with the
-Packages tab pre-selected, even if you were paging through Pull requests.
-`server.ts` reads all four off `c.req.query()`; `pages.ts`'s `hrefFor`
-builds links that keep the other three untouched and only change the one
-being paged.
+Switching tabs keeps `repo` and `q` and drops the rest. Script on the page
+is limited to conveniences on top of that: the repo picker's
+`onchange="this.form.submit()"` (with a `<noscript>` submit button - it's
+still just a GET form), and `/` focusing the search box.
+
+Some choices made against a real scan (got: 773 packages, 10.7k call sites):
+
+- **Direct dependencies by default.** Transitive ones outnumber them ~15:1
+  and are rarely what anyone came to look at; the toggle shows all three
+  counts so nothing is hidden.
+- **Repo shown once, not per row.** Repo paths are absolute and can run to
+  hundreds of characters. With one repo selected, it's named in the header
+  and the Repo column disappears; across repos, the column shows the
+  directory name with the full path on hover.
+- **Snippets fold.** A call-site snippet is whatever expression the scanner
+  matched, which can be a 100-line chained call. The table shows its first
+  line and a `<details>` expands the rest.
+- **API chips.** A package's call-site view leads with which of its APIs
+  the code uses, most-used first - the quickest read on how painful a
+  breaking release would be. Past 12 they fold into "N more".
+
+## Styling
+
+`static/style.css` is the whole design - no CSS framework. It's a set of
+colour/radius/font tokens on `:root`, dark by default and switched to a
+light palette under `prefers-color-scheme: light`, with Geist and Geist
+Mono loaded from Google Fonts (falling back to the system UI and monospace
+fonts offline). The metrics strip, the toolbar/table/pagination card, the
+segmented Direct/Transitive/All control, and the call-site usage bars
+(scaled against the largest count on the current page) are all plain
+elements styled there.
+
+The top bar uses `logo-mark.png`, the `{◎}` mark cropped out of `logo.png`,
+next to the wordmark set in text. Both images are black on transparent, so
+the mark is inverted on the dark theme.
 
 ## `createServer(db)`
 
 Two things mounted on the Hono app:
 
-- `GET /` - reads `tab`/`packagesPage`/`suggestionsPage`/`pullRequestsPage`
-  off the query string, calls `DashboardRepository`'s three list methods
-  with the requested page, and returns `dashboardPage(...)` via
-  `c.html(...)`.
-- `static/` (Pico.css overrides, the tab/pagination CSS, and the logo), via
+- `GET /` - `parseState()` turns the query string into a `DashboardState`
+  (validating `tab`/`type`/`page`, and only accepting a `repo` that's in
+  `listRepos()`), `tabContent()` runs just the queries the active tab
+  needs, and `dashboardPage(...)` renders it via `c.html(...)`.
+- `static/` (the stylesheet and the logo), via
   `@hono/node-server/serve-static`, mounted at `/*` after the `/` route.
 
 `serveStatic`'s `root` is resolved from `import.meta.dirname`, not
