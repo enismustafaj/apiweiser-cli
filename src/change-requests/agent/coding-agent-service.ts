@@ -67,6 +67,10 @@ ${input.summary}
 
 ${callSitesSection}
 
+The repository being migrated is at "${input.repoPath}". Read from it as
+needed, but don't modify it - the finished codemod is applied to it
+separately, after you're done.
+
 This codemod package will be stored in a shared local registry and reused
 against other repos beyond this one, so don't special-case the transform
 to only the exact import style seen above - handle every common way
@@ -83,7 +87,7 @@ already covers them, verify it still passes and stop there; if it doesn't
 (e.g. it only handles a different import style, or missed part of the API
 surface), extend it rather than starting over. If nothing exists yet,
 scaffold fresh here - \`codemod init . --no-interactive\`.
-${this.remoteRegistrySection(remoteName)}
+${this.remoteRegistrySection(remoteName, input.repoPath)}
 If extending: do not delete or modify any existing fixture under tests/ -
 those are what keep this codemod correct for every repo that has already
 used it, not just this one. Only add new fixtures alongside them.
@@ -102,15 +106,15 @@ with "${RESULT_MARKER}" followed by JSON matching
 "reason" only if success is false, explaining why you gave up.`;
   }
 
-  private remoteRegistrySection(remoteName: string): string {
+  private remoteRegistrySection(remoteName: string, repoPath: string): string {
     if (this.codemodRegistryConfig?.mode !== "remote") return "";
 
     return `
 Also check the public codemod registry before scaffolding fresh -
 \`npx codemod search "${remoteName}" --scope "${this.codemodRegistryConfig.scope}" --format json\`.
 If a package named exactly "${remoteName}" exists there, inspect it the
-same way you would a local entry (e.g. dry-run it against this repo -
-\`npx codemod run "<name>@<version>" --target . --dry-run --no-interactive\`)
+same way you would a local entry (e.g. dry-run it against the repository -
+\`npx codemod run "<name>@<version>" --target "${repoPath}" --dry-run --no-interactive\`)
 and judge for yourself whether it actually covers the call sites/usages
 above: reuse or adapt it if so, treat it only as a reference if it's
 partial, or ignore it and scaffold fresh here if it doesn't apply. Don't
@@ -149,11 +153,12 @@ ${callSites}`;
     const packageNames = input.packages.map((pkg) => `"${pkg.name}"`).join(", ");
     return `${packageNames} ${input.packages.length === 1 ? "is a" : "are"} devDependency - no call
 sites were tracked for it (dev tooling isn't scanned as application API
-usage the same way a runtime dependency is). Inspect this repo yourself
-(config files, package.json scripts, CI config, other code that references
-${packageNames}) to figure out what, if anything, actually needs to
-change for this upgrade, based on the changelog summary above. If nothing
-in this repo needs to change, that's a valid outcome - report success with
+usage the same way a runtime dependency is). Inspect the repository at
+"${input.repoPath}" yourself (config files, package.json scripts, CI
+config, other code that references ${packageNames}) to figure out what,
+if anything, actually needs to change for this upgrade, based on the
+changelog summary above. If nothing in that repository needs to change,
+that's a valid outcome - report success with
 an empty transform rather than inventing a change that isn't needed.`;
   }
 

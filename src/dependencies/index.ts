@@ -4,7 +4,7 @@ import { db } from "../db/singleton.ts";
 import { CallSitesRepository } from "./db/call-sites-repository.ts";
 import { PackagesRepository } from "./db/packages-repository.ts";
 import { Scanner } from "./scanner/scanner.ts";
-import { SbomTool } from "./tool/sbom-tool.ts";
+import { SbomTool } from "./sbom/sbom-tool.ts";
 import type { CallSite } from "./types.ts";
 
 export class DependenciesModule {

@@ -47,6 +47,10 @@ export class RenovateTool {
           // SuggestionsRepository.insert (a NOT NULL column) when one
           // slips through.
           "--enabled-managers=npm",
+          // One candidate per major (6.x, 7.x, ...) instead of only the
+          // latest major, so pickNextLeap can choose the next one - see
+          // docs/suggestions.md § Picking one update per package.
+          "--separate-multiple-major=true",
           "--report-type=file",
           `--report-path=${reportPath}`,
         ],

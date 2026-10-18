@@ -20,6 +20,7 @@ npx --yes renovate
   --dependency-dashboard=false  # skip the dashboard issue workflow
   --osv-vulnerability-alerts=true  # check OSV.dev for known vulnerabilities too
   --enabled-managers=npm        # only package.json dependencies
+  --separate-multiple-major=true   # one candidate per major, not just the latest
   --report-type=file
   --report-path=<cache file>
 ```
@@ -43,6 +44,17 @@ Renovate's own report gives it no `depType` - and
 into a `NOT NULL` column. Restricting to the `npm` manager keeps Renovate
 to exactly what this pipeline is built to handle: `package.json`
 dependencies.
+
+**Why `--separate-multiple-major`**: without it, Renovate offers only the
+latest major (`@angular/forms 5.2.9 → 22.2.0`). With it, it offers one
+candidate per major (`5.2.11, 6.1.10, 7.2.16, … 22.2.0`), so the planner can
+take the next major instead (see § Picking one update per package below).
+It doesn't change vulnerable packages: when OSV finds an advisory, Renovate
+replaces that package's normal updates with a single security fix - the
+lowest fixed version, however far away (e.g. `@angular/core 5.2.9 →
+20.0.0`, since no 6.x-19.x release fixes its advisories). That's the only
+candidate the planner sees for it, so the security fix wins over stepping
+one major at a time.
 
 **Why the report file, not stdout/logs**: `--report-type=file` is Renovate's
 own stable, structured output — the same data other Renovate integrations
@@ -117,33 +129,93 @@ only run queries against `db.connection`.
 
 Thin orchestrator, same shape as `DependenciesModule`: `generate(repoPath)`
 runs `RenovateTool`, inserts the resulting updates via
-`SuggestionsRepository`, groups them (below), then raises a change request
-for each group that's either a real dependency with call sites or a
-devDependency, before returning the updates.
+`SuggestionsRepository`, plans them into groups with `UpgradePlanner`
+(below), then raises a change request for each group that's either a real
+dependency with call sites or a devDependency, before returning the
+updates.
 
-### Grouping scoped packages
+## `UpgradePlanner`
 
-`groupByScope` puts every update sharing an npm scope (`@angular/core`,
-`@angular/router`, ... → `@angular`) into one group, before anything else
-runs - a group of one (an unscoped package, or a scope with only one
-update) behaves identically to today. Found the hard way, running the full
-pipeline against a real repo: Renovate proposed `@angular/common`,
-`@angular/core`, `@angular/router`, and `@angular/platform-browser-dynamic`
-as four independent updates, and raising four independent change requests
-meant four independent `npm install @angular/x@20.0.0` calls - each one
-failed with a peer-dependency `ERESOLVE`, because Angular's own packages
-peer-depend on their scope-siblings at the exact same version, and nothing
-had bumped the others yet. A group becomes **one** `ChangeRequestInput`
-with `packages: ChangeRequestPackage[]` (combined call sites, combined
-changelog summary, one coding-agent session, one PR - see
-[`docs/change-requests.md`](./change-requests.md)) instead of one per
-package.
+`src/suggestions/group-updates.ts`. Turns Renovate's rows into the change
+requests to raise: `plan(updates)` returns `{ groups, skipped }` - each
+group is a set of Renovate rows that must be upgraded together (one
+codemod, one install, one PR), and `skipped` lists the packages it couldn't
+plan, with the reason. `UpgradePlanner.forRepo(repoPath, packages)` builds
+one with its lookups (below) and a fresh registry cache, so a long-running
+process never reuses registry data from a previous daily run.
 
-**`@types/*` is excluded on purpose** - it's the one common scope where
-grouping would be wrong. Unlike `@angular/*`, `@types/react` and
-`@types/node` have nothing to do with each other's version numbers or
-install requirements; they're independent packages that merely happen to
-publish under the same DefinitelyTyped-managed scope.
+### Picking one update per package
+
+Renovate proposes several updates for the same package - a patch/minor
+within the current major, plus one per major (e.g. `@angular/forms 5.2.9 →
+5.2.11`, `→ 6.1.10`, ... `→ 22.2.0`). The planner keeps exactly one per
+package as its starting point: the **lowest** candidate that crosses into a
+new major (the next major, not the latest - migration guides and codemods
+are written one major at a time, and the daily loop then proposes the next
+step once this one is merged), or, if none crosses, the highest candidate
+within the current major. A patch candidate is skipped when a
+major-crossing one exists, since the major release already includes it.
+
+Found the hard way: keeping more than one row per package raised competing
+change requests for the same package, or put two specs for one package
+into a single `npm install`, which npm can't resolve.
+
+### Grouping by peer dependencies
+
+Packages that peer-depend on each other have to be upgraded in the same
+install - bumping one alone fails with `ERESOLVE`. Found the hard way on a
+real repo: `@angular/core@20` needs `rxjs ^6.5.3 || ^7.4.0`, so upgrading
+the Angular packages without `rxjs` couldn't be installed. (Grouping by npm
+scope, the earlier approach, missed this: `rxjs` and `zone.js` aren't
+`@angular/*`.)
+
+`PeerGrouper` (`src/dependencies/peer/`) builds a group from one starting
+package and keeps adding what the group forces in, until nothing new is
+needed:
+
+- **Forward** - the peers a member's new version needs. A peer stays out if
+  its installed version already satisfies the range, or if it isn't
+  installed at all (npm 7+ and pnpm install missing peers themselves).
+  Otherwise it joins at its **lowest** Renovate candidate that fits. An
+  optional peer (`peerDependenciesMeta`) still counts when it's installed -
+  npm enforces its range then.
+- **Reverse** - installed packages whose peer range rejects a member's new
+  version. Each joins at its lowest Renovate candidate whose own peer range
+  accepts the new version.
+
+Versions are only ever chosen from Renovate's candidates. If no candidate
+fits, the group is a **conflict**: it's skipped, with a reason naming the
+package and range, e.g. `@angular/core@20.0.0 needs zone.js ~0.15.0;
+installed is 0.8.20, Renovate offers [0.16.3]` (Renovate treats `0.x` as
+one stream, so only the newest is offered). Greedy, no backtracking - an
+earlier "lowest fitting" choice is never revisited.
+
+The data comes from two places:
+
+- **Installed versions** - the `packages` table (filled from the SBOM on
+  every scan), via `InstalledDependencies.version`.
+- **Peer ranges** - the npm registry, via `RegistryPeers.peersOf`: one
+  cached request per package (the compact `application/vnd.npm.install-v1+json`
+  document lists every version's peers). For the reverse check,
+  `InstalledDependencies.dependentsOf` asks about every **direct**
+  dependency - only those can join a group, since Renovate only suggests
+  updates for them. A transitive package that peers the bumped one is
+  missed; npm install then fails with `ERESOLVE`. A dependency the registry
+  doesn't know (workspace, git, file, private registry) is skipped; a
+  temporary registry failure (5xx, timeout) throws instead of looking like
+  "no peers".
+
+**No package ends up in two groups.** Starting points are processed in
+Renovate's order. A package already pulled into an earlier group isn't
+raised again. A group that would pull in a package an earlier group already
+moves is skipped ("needs X, which an earlier group already moves") rather
+than merged - merging correctly means rebuilding the combined group. The
+next daily run plans it again against the new installed state.
+
+If the registry fails while building one package's group, only that
+package is skipped ("couldn't check peers: …"). Since the reverse check
+asks about every direct dependency, a failure for one of those affects
+every package in that run - the next daily run retries.
 
 ### Raising change requests
 

@@ -13,16 +13,16 @@ apply it and open a PR.
 | field             | type                     | notes                                                                                 |
 | ----------------- | ------------------------ | ------------------------------------------------------------------------------------- |
 | `repoPath`        | `string`                 | the repo being monitored, for `GithubModule`                                          |
-| `packages`        | `ChangeRequestPackage[]` | usually one; more than one only for a scope-siblings group, see below                 |
+| `packages`        | `ChangeRequestPackage[]` | usually one; more than one for packages that peer-depend on each other, see below     |
 | `callSites`       | `CallSite[]`             | combined across every package, always `[]` for a devDependency group (see below)      |
 | `isDevDependency` | `boolean`                | from Renovate's `depType`, true only if every package in the group is a devDependency |
 | `summary`         | `string`                 | from `ChangelogSummarizer.summarize`, combined across every package                   |
 
 `ChangeRequestPackage` is `{ name, version, newVersion }`. Almost always a
-single-element `packages` array - more than one only when
-`SuggestionsModule.groupByScope` grouped several scope-siblings together
-because they must be bumped in the same install call (see
-[`docs/suggestions.md`](./suggestions.md) § Grouping scoped packages, and
+single-element `packages` array - more than one when `UpgradePlanner`
+grouped packages that peer-depend on each other, because they must be
+bumped in the same install call (see
+[`docs/suggestions.md`](./suggestions.md) § Grouping by peer dependencies, and
 `DependencyBumper.bumpAll` in [`docs/github.md`](./github.md) for the real
 `ERESOLVE` this exists to avoid). Everything downstream - the codemod
 registry key, the coding agent prompt, the PR - treats a one-package
@@ -97,11 +97,12 @@ returns that directory's path, creating it first if it's missing.
 **For a multi-package group**, `registryKeyFor` (in `registry-key.ts` -
 extracted so `CodingAgentService` doesn't duplicate this logic for the
 local path and the remote registry name, see § Remote registry below)
-computes `packageName` as the shared scope (`@angular`, not a joined list
-of every
-member's name - groups are always scope-siblings, see
-[`docs/suggestions.md`](./suggestions.md) § Grouping scoped packages) and
-`fromVersion`/`toVersion` as the widest span across the group's members
+computes `packageName` from the group's first member: its scope if it's
+scoped (`@angular`), otherwise every member's name joined with `+`. That
+dates from scope-based grouping; a peer group can now mix packages (e.g.
+`@angular/core` + `rxjs`, labelled just `@angular`), so the label is due a
+revisit (see [`docs/suggestions.md`](./suggestions.md) § Grouping by peer
+dependencies). `fromVersion`/`toVersion` are the widest span across the group's members
 (the lowest current version, the highest new version) - a reasonable
 stand-in for "this exact upgrade" when members don't all move by the exact
 same amount (e.g. `@angular/core` `5→20` alongside `@angular/router`
@@ -136,6 +137,15 @@ own root instead, back when the skill was installed `--project`-scoped,
 since that only resolves from the specific directory it was installed
 into. Installing it `--user`-scoped instead (see § "The codemod way" above)
 resolves that regardless of cwd, so the workaround is gone.)
+
+Because `cwd` is the registry slot and not the repo, the prompt states the
+repo's path explicitly (`input.repoPath`) and tells the agent to read from
+it but not modify it - the codemod is applied to it later, by
+`GithubModule`. The agent doesn't read the whole repo: it opens files on
+its own judgment, typically around the sampled call sites. Without the
+path, "this repo" in the devDependency and remote-registry instructions
+pointed at the codemod folder, and the remote dry-run (`--target`) ran
+against the wrong directory.
 
 **Generalizing beyond the sample repo**: found the hard way, testing
 against a second real repo - a codemod is built from one repo's call

@@ -4,12 +4,6 @@ import { ChangelogSummarizerAgent } from "./agent/changelog-summarizer-agent.ts"
 import { DataSourcesRepository } from "./db/data-sources-repository.ts";
 import { GitHubReleaseFetcher } from "./github-release-fetcher.ts";
 
-// A pathological case (a fast-moving package with hundreds of releases
-// between the current and target version) could otherwise produce a
-// combined changelog far past what's reasonable to summarize in one call -
-// ponytail: a flat character cap, not per-release trimming, since a
-// truncated-but-complete prefix of the real notes is still more useful to
-// the model than nothing.
 const MAX_COMBINED_LENGTH = 60_000;
 
 export class ChangelogSummarizer {

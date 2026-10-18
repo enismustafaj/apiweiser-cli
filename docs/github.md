@@ -61,7 +61,7 @@ This cache directory is disposable; it's never a place to keep work.
 `SbomTool`'s `npm sbom` (see [`docs/scanner.md`](./scanner.md)) needs
 `node_modules` actually installed, which a fresh clone doesn't have - but
 that's a dependencies-module concern, not a git-cloning one.
-`DependencyInstaller.install(repoPath)` (`src/dependencies/tool/`, next to
+`DependencyInstaller.install(repoPath)` (`src/dependencies/sbom/`, next to
 `SbomTool`) runs `npm install --legacy-peer-deps` - a no-op if there's no
 `package.json` - and `main.ts` calls it explicitly right after
 `cloneOrPull`, only for the `--repo` path. A `--path` repo is assumed to
@@ -115,11 +115,11 @@ members), not one call per package. Found the hard way, running the full
 pipeline against a real repo: `npm install @angular/common@20.0.0` alone
 fails with a peer-dependency `ERESOLVE`, because `@angular/common@20`
 peer-depends on `@angular/core@20` - and the repo's `@angular/core` was
-still on `5.x`, since nothing had bumped it yet. Giving npm every
-scope-sibling in the same `npm install` call lets it resolve the whole
-family's peer graph together instead of failing on the first package one
-at a time. See [`docs/suggestions.md`](./suggestions.md) § Grouping scoped
-packages for where these groups come from.
+still on `5.x`, since nothing had bumped it yet. Giving npm every package
+that peer-depends on the others in the same `npm install` call lets it
+resolve their peer ranges together instead of failing on the first package
+one at a time. See [`docs/suggestions.md`](./suggestions.md) § Grouping by
+peer dependencies for where these groups come from.
 
 Not covered by an automated test beyond the "nothing declared, stay a
 no-op" guard - the actual install is network-bound, same reasoning as
@@ -190,10 +190,10 @@ the created PR's `html_url`.
 
 ## `GithubModule.openPullRequestForCodemod(request)`
 
-`request.packages` is one or more packages - more than one only for a
-scope-siblings group (see [`docs/suggestions.md`](./suggestions.md) §
-Grouping scoped packages), everything below still produces exactly **one**
-PR either way:
+`request.packages` is one or more packages - more than one for packages
+that peer-depend on each other (see [`docs/suggestions.md`](./suggestions.md)
+§ Grouping by peer dependencies), everything below still produces exactly
+**one** PR either way:
 
 1. `GitTool.resetToDefaultBranch(request.repoPath)` - see § Resetting
    before every pull, and before every PR attempt above. Runs first,
@@ -210,9 +210,11 @@ PR either way:
    `{ created: false, reason: "origin remote isn't a GitHub repo" }`.
 6. Branches as `apiweiser-cli/<label>-<newVersion>` (sanitized) and commits
    with `Migrate <label> from <version> to <newVersion>` - for a single
-   package `<label>` is its name; for a group it's the shared scope (e.g.
-   `@angular`), since multi-package groups are always scope-siblings by
-   construction. Pushes, then opens the PR - title is the same message,
+   package `<label>` is its name; for a group it's the first member's scope
+   (e.g. `@angular`), or every name joined if the first member isn't
+   scoped. That dates from scope-based grouping - a peer group can mix
+   packages now (e.g. `@angular/core` + `rxjs` is labelled just `@angular`),
+   so the label is due a revisit. Pushes, then opens the PR - title is the same message,
    body lists every package's `version -> newVersion` plus the combined
    changelog summary and a pointer to the codemod package's local path (see
    [`docs/change-requests.md`](./change-requests.md) § `CodemodRegistry`).

@@ -3,7 +3,7 @@
 `src/dependencies/scanner/scanner.ts` — `Scanner.findCallSites(repoPath, deps)`
 
 Given a repo path and the list of `Dependency` objects produced by
-[`SbomTool`](../src/dependencies/tool/sbom-tool.ts), the scanner finds every
+[`SbomTool`](../src/dependencies/sbom/sbom-tool.ts), the scanner finds every
 place in the repo's TypeScript source where one of those dependencies is
 actually _invoked_, and which exported member was called (the "API
 surface"). It returns a `CallSite[]`, one entry per resolved call:
@@ -60,7 +60,7 @@ called on was produced.
 ## devDependencies aren't scanned at all
 
 `DependenciesModule.scan()` filters out `isDevDependency` dependencies
-(see [`SbomTool`](../src/dependencies/tool/sbom-tool.ts), which reads npm
+(see [`SbomTool`](../src/dependencies/sbom/sbom-tool.ts), which reads npm
 sbom's `cdx:npm:package:development` component property) before calling
 `findCallSites` - dev tooling doesn't get "called" from application code
 the way a runtime dependency does, and even where it technically resolves

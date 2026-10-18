@@ -4,7 +4,7 @@ import { ConfigLoader } from "./config/config-loader.ts";
 import { Scheduler as DataSourcesScheduler } from "./data-sources/changelog-lookup-scheduler.ts";
 import { DashboardModule } from "./dashboard/index.ts";
 import { DependenciesModule } from "./dependencies/index.ts";
-import { DependencyInstaller } from "./dependencies/tool/dependency-installer.ts";
+import { DependencyInstaller } from "./dependencies/sbom/dependency-installer.ts";
 import { RepoCloner } from "./github/tool/repo-cloner.ts";
 import { Scheduler as SuggestionsScheduler } from "./suggestions/suggestions-scheduler.ts";
 

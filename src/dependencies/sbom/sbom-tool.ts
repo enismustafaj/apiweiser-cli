@@ -15,10 +15,13 @@ export class SbomTool {
   async generate(repoPath: string): Promise<Dependency[]> {
     const absoluteRepoPath = resolve(repoPath);
 
-    const { stdout } = await execFileAsync("npm", ["sbom", "--sbom-format", "cyclonedx"], {
-      cwd: absoluteRepoPath,
-      maxBuffer: 1024 * 1024 * 20,
-    });
+    // --legacy-peer-deps matches DependencyInstaller: without it, npm sbom
+    // fails (ESBOMPROBLEMS) on any required peer that install skipped.
+    const { stdout } = await execFileAsync(
+      "npm",
+      ["sbom", "--sbom-format", "cyclonedx", "--legacy-peer-deps"],
+      { cwd: absoluteRepoPath, maxBuffer: 1024 * 1024 * 20 },
+    );
 
     await this.writeToCache(absoluteRepoPath, stdout);
 

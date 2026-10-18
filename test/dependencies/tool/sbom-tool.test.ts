@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SbomTool } from "../../../src/dependencies/tool/sbom-tool.ts";
+import { SbomTool } from "../../../src/dependencies/sbom/sbom-tool.ts";
 
 // Runs the real `npm sbom` subprocess against this repo (fast, local, no
 // network - unlike RenovateTool, which isn't covered by an automated test

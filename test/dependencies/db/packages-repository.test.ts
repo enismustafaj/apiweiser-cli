@@ -93,3 +93,33 @@ test("findNew treats a never-before-seen package name as new", () => {
 
   assert.deepEqual(result, [commander("15.0.0")]);
 });
+
+test("findVersion returns the stored version for this repo only", () => {
+  const repo = new PackagesRepository(new Database(":memory:"));
+  repo.upsert(REPO_A, [commander("15.0.0")]);
+  repo.upsert(REPO_B, [commander("10.0.0")]);
+
+  assert.equal(repo.findVersion(REPO_A, "commander"), "15.0.0");
+  assert.equal(repo.findVersion(REPO_B, "commander"), "10.0.0");
+});
+
+test("findVersion returns null for a package this repo doesn't have", () => {
+  const repo = new PackagesRepository(new Database(":memory:"));
+
+  assert.equal(repo.findVersion(REPO_A, "commander"), null);
+});
+
+test("findDirect returns only this repo's direct dependencies", () => {
+  const repo = new PackagesRepository(new Database(":memory:"));
+  repo.upsert(REPO_A, [
+    commander("15.0.0"),
+    { name: "chalk", currentVersion: "5.0.0", type: "transitive" },
+  ]);
+  repo.upsert(REPO_B, [{ name: "rxjs", currentVersion: "7.0.0", type: "direct" }]);
+
+  // node:sqlite rows are null-prototype objects - spread to compare values.
+  assert.deepEqual(
+    repo.findDirect(REPO_A).map((row) => ({ ...row })),
+    [{ name: "commander", currentVersion: "15.0.0" }],
+  );
+});

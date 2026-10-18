@@ -84,6 +84,27 @@ test("buildPrompt doesn't truncate or mention sampling when nothing was dropped"
   assert.match(prompt, /this list may not be exhaustive/);
 });
 
+// The agent runs with the codemod registry slot as its cwd, not the repo -
+// without the path in the prompt, "this repo" pointed at the codemod folder.
+test("buildPrompt tells the agent where the repository being migrated is", async () => {
+  const packageName = `test-pkg-${randomUUID()}`;
+  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", packageName));
+  const service = new CodingAgentService({ command: "node", args: ["-e", CAPTURE_SCRIPT] });
+
+  await service.generateCodemod({
+    repoPath: "/repos/a",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
+    callSites: [callSite("Foo.bar", 1)],
+    isDevDependency: false,
+    summary: "breaking release",
+  });
+
+  const codemodPath = new CodemodRegistry().pathFor(packageName, "1.0.0", "2.0.0");
+  const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
+
+  assert.match(prompt, /The repository being migrated is at "\/repos\/a"/);
+});
+
 // devDependencies never have call sites (see DependenciesModule.scan) -
 // the prompt should hand the agent the changelog summary and tell it to
 // inspect the repo itself, not claim a call-site sample that doesn't exist.
@@ -104,6 +125,7 @@ test("buildPrompt describes a devDependency upgrade without a call-site sample",
   const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
 
   assert.match(prompt, /is a devDependency - no call\nsites were tracked/);
+  assert.match(prompt, /Inspect the repository at\n"\/repos\/a" yourself/);
   assert.doesNotMatch(prompt, /Call sites to migrate/);
 });
 
@@ -160,6 +182,7 @@ test("buildPrompt tells the agent to check the remote registry when a scope is c
 
   assert.match(prompt, /Also check the public codemod registry/);
   assert.match(prompt, new RegExp(`codemod search "${packageName}-1-to-2" --scope "my-org"`));
+  assert.match(prompt, /--target "\/repos\/a" --dry-run/);
 });
 
 test("buildPrompt omits the remote registry section when no scope is configured", async () => {

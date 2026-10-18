@@ -30,6 +30,22 @@ export class PackagesRepository {
     return dependencies.filter((dependency) => !exists.get(dependency.name));
   }
 
+  findVersion(repoPath: string, name: string): string | null {
+    const row = this.db.connection
+      .prepare(`SELECT current_version FROM packages WHERE repo_path = ? AND name = ?`)
+      .get(repoPath, name) as { current_version: string } | undefined;
+    return row?.current_version ?? null;
+  }
+
+  findDirect(repoPath: string): { name: string; currentVersion: string }[] {
+    return this.db.connection
+      .prepare(
+        `SELECT name, current_version AS currentVersion FROM packages
+         WHERE repo_path = ? AND type = 'direct'`,
+      )
+      .all(repoPath) as { name: string; currentVersion: string }[];
+  }
+
   // RETURNING id sets dependency.id in the same statement, so downstream
   // repositories can insert with that id directly instead of re-selecting
   // it by name.

@@ -8,9 +8,10 @@ import type {
   LlmConfig,
 } from "../config/config.ts";
 import { CallSitesRepository } from "../dependencies/db/call-sites-repository.ts";
+import { PackagesRepository } from "../dependencies/db/packages-repository.ts";
 import { db } from "../db/singleton.ts";
 import { SuggestionsRepository } from "./db/suggestions-repository.ts";
-import { dedupeByPackage, groupByScope } from "./group-updates.ts";
+import { UpgradePlanner } from "./group-updates.ts";
 import { RenovateTool } from "./tool/renovate-tool.ts";
 import type { RenovateUpdate } from "./types.ts";
 
@@ -18,6 +19,7 @@ export class SuggestionsModule {
   private readonly renovateTool = new RenovateTool();
   private readonly suggestionsRepository = new SuggestionsRepository(db);
   private readonly callSitesRepository = new CallSitesRepository(db);
+  private readonly packagesRepository = new PackagesRepository(db);
   private readonly changelogSummarizer: ChangelogSummarizer;
   private readonly changeRequests: ChangeRequestsModule;
 
@@ -41,8 +43,12 @@ export class SuggestionsModule {
     const updates = await this.renovateTool.run(absoluteRepoPath);
     this.suggestionsRepository.insert(absoluteRepoPath, updates);
 
-    for (const group of groupByScope(updates)) {
-      await this.raiseChangeRequest(absoluteRepoPath, dedupeByPackage(group));
+    const plan = await UpgradePlanner.forRepo(absoluteRepoPath, this.packagesRepository).plan(
+      updates,
+    );
+
+    for (const group of plan.groups) {
+      await this.raiseChangeRequest(absoluteRepoPath, group);
     }
 
     return updates;

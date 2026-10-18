@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { DependencyInstaller } from "../../../src/dependencies/tool/dependency-installer.ts";
+import { DependencyInstaller } from "../../../src/dependencies/sbom/dependency-installer.ts";
 
 const createdDirs: string[] = [];
 
