@@ -48,7 +48,6 @@ test("buildPrompt samples at most 3 call sites per API surface and says so", asy
     repoPath: "/repos/a",
     packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites,
-    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -73,7 +72,6 @@ test("buildPrompt doesn't truncate or mention sampling when nothing was dropped"
     repoPath: "/repos/a",
     packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites: [callSite("Foo.bar", 1), callSite("Foo.baz", 2)],
-    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -95,7 +93,6 @@ test("buildPrompt tells the agent where the repository being migrated is", async
     repoPath: "/repos/a",
     packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites: [callSite("Foo.bar", 1)],
-    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -103,30 +100,6 @@ test("buildPrompt tells the agent where the repository being migrated is", async
   const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
 
   assert.match(prompt, /The repository being migrated is at "\/repos\/a"/);
-});
-
-// devDependencies never have call sites (see DependenciesModule.scan) -
-// the prompt should hand the agent the changelog summary and tell it to
-// inspect the repo itself, not claim a call-site sample that doesn't exist.
-test("buildPrompt describes a devDependency upgrade without a call-site sample", async () => {
-  const packageName = `test-pkg-${randomUUID()}`;
-  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", packageName));
-  const service = new CodingAgentService({ command: "node", args: ["-e", CAPTURE_SCRIPT] });
-
-  await service.generateCodemod({
-    repoPath: "/repos/a",
-    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
-    callSites: [],
-    isDevDependency: true,
-    summary: "breaking release",
-  });
-
-  const codemodPath = new CodemodRegistry().pathFor(packageName, "1.0.0", "2.0.0");
-  const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
-
-  assert.match(prompt, /is a devDependency - no call\nsites were tracked/);
-  assert.match(prompt, /Inspect the repository at\n"\/repos\/a" yourself/);
-  assert.doesNotMatch(prompt, /Call sites to migrate/);
 });
 
 // A multi-package group (see SuggestionsModule § Grouping scoped packages)
@@ -145,7 +118,6 @@ test("buildPrompt describes a multi-package group that must move together", asyn
       { name: `${scope}/router`, version: "5.0.0", newVersion: "22.0.0" },
     ],
     callSites: [callSite("Foo.bar", 1)],
-    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -173,7 +145,6 @@ test("buildPrompt tells the agent to check the remote registry when a scope is c
     repoPath: "/repos/a",
     packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites: [callSite("Foo.bar", 1)],
-    isDevDependency: false,
     summary: "breaking release",
   });
 
@@ -194,7 +165,6 @@ test("buildPrompt omits the remote registry section when no scope is configured"
     repoPath: "/repos/a",
     packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
     callSites: [callSite("Foo.bar", 1)],
-    isDevDependency: false,
     summary: "breaking release",
   });
 

@@ -56,16 +56,13 @@ export class SuggestionsModule {
 
   private async raiseChangeRequest(repoPath: string, group: RenovateUpdate[]): Promise<void> {
     // devDependencies are never scanned for call sites (see
-    // DependenciesModule.scan) - real API-surface migration doesn't apply
-    // to dev tooling the same way, so the coding agent works from the
-    // changelog summary alone instead of requiring call sites first.
-    const isDevDependency = group.every((update) => update.depType === "devDependencies");
-    const callSites = isDevDependency
-      ? []
-      : group.flatMap((update) =>
-          this.callSitesRepository.findForDependency(repoPath, update.dependency),
-        );
-    if (!isDevDependency && callSites.length === 0) return;
+    // DependenciesModule.scan), so an all-devDependency group always has
+    // none and is skipped here. A devDependency grouped with a runtime
+    // package (a peer it needs) still gets bumped along with it.
+    const callSites = group.flatMap((update) =>
+      this.callSitesRepository.findForDependency(repoPath, update.dependency),
+    );
+    if (callSites.length === 0) return;
 
     const summaries: string[] = [];
     for (const update of group) {
@@ -96,7 +93,6 @@ export class SuggestionsModule {
           newVersion: update.newVersion,
         })),
         callSites,
-        isDevDependency,
         summary: summaries.join("\n\n"),
       });
     } catch (err) {

@@ -2,25 +2,35 @@
 
 A tool that watches a repo's dependencies for you: it finds where each one
 is actually used in your code, tracks version updates as they're proposed,
-figures out whether a given update is breaking, and — when it is — has a
-coding agent write, test, and open a PR for the migration automatically.
+and has a coding agent write, test, and open a PR for each upgrade —
+migrating your call sites when the changelog says they need it.
 
 ## What it does
 
-1. **Scan** (`--path`) — reads your repo's SBOM, records every dependency,
-   and finds every place in your source each one is actually called.
+1. **Scan** (`--path`/`--repo`) — reads your repo's SBOM, records every
+   dependency, and finds every place in your source each one is actually
+   called.
 2. **Look up changelogs** (daily) — for any dependency it's never seen
    before, figures out where its GitHub releases live.
-3. **Classify releases** (daily) — fetches each dependency's latest GitHub
-   release and asks an LLM whether it's a breaking change.
-4. **Track suggestions** (daily) — runs Renovate to see what version
-   updates are available for your repo.
-5. **Raise change requests** (automatic, once 3 and 4 agree an update is
-   breaking) — asks a coding agent to build and test a codemod for the
-   migration, applies it to your repo, and opens a PR.
+3. **Track suggestions** (daily) — runs Renovate to see what version
+   updates are available, picks one target version per package, and groups
+   packages whose peer dependencies mean they must move together (see
+   [`docs/upgrade-grouping.md`](docs/upgrade-grouping.md)).
+4. **Raise change requests** (right after 3, once per group) — asks an LLM
+   to summarize the GitHub releases between the current and new version,
+   then asks a coding agent to build and test a codemod for the migration,
+   bumps the versions, applies the codemod, and opens a PR.
 
-Steps 2-4 each run once a day, in that order, for as long as the process
-keeps running.
+Steps 2 and 3 each run once a day, in that order, for as long as the
+process keeps running.
+
+There's no breaking-change filter: every group gets a change request, minor
+and patch updates included. Groups are skipped only when the scan found no
+call sites for any of their packages or none of their changelogs could be
+summarized. devDependencies are never scanned for call sites, so upgrades
+of dev tooling alone (`eslint`, `typescript`, `@types/*`, ...) are always
+skipped. A devDependency only gets bumped as a peer of a runtime package
+that's being upgraded.
 
 Everything is persisted to a local sqlite database, separate from any repo
 you point it at.
@@ -75,7 +85,7 @@ node src/main.ts --path <path-to-repo>
 ## Configure
 
 Every run needs `~/.apiweiser-cli/config.json` filled in — even a plain
-scan, since the process always starts three daily background schedulers
+scan, since the process always starts two daily background schedulers
 alongside it (see [Usage](#usage)). Run the CLI once with no config and it
 creates a template for you there, then exits with an error telling you to
 fill it in:
@@ -101,10 +111,16 @@ fill it in:
 | --------------------- | -------------------------------------------------------------------------------------------------- |
 | `llm.apiKey`          | Your API key for whichever provider `llm.url` points at                                            |
 | `llm.url`             | An OpenAI-compatible `baseURL` — `https://api.openai.com/v1`, or a compatible provider like Groq   |
-| `llm.model`           | Model name at that endpoint                                                                        |
+| `llm.model`           | Model name at that endpoint - used to summarize changelogs for the coding agent                    |
 | `codingAgent.command` | `"claude"` for Claude Code, `"codex"` for Codex - whichever you have installed                     |
 | `codingAgent.args`    | Flags that put that CLI into non-interactive mode - `["-p"]` for Claude Code, `["exec"]` for Codex |
 | `github.token`        | The PAT from [Prerequisites](#prerequisites) above                                                 |
+
+Optionally, `codemodRegistry` (`{ "mode": "local" }` by default) controls
+where generated codemods are shared: `"local"` keeps them under
+`~/.apiweiser-cli/codemods/`, `"remote"` also searches and publishes to the
+Codemod registry and needs `scope` and `apiKey` - see
+[`docs/change-requests.md`](docs/change-requests.md) § Remote registry.
 
 `codingAgent` also needs the codemod skill installed for it (see
 [Install](#install) above) - without it, your coding agent won't know how
@@ -126,13 +142,13 @@ instead — everything after this point behaves identically either way.
 
 Scans the repo once (generates its SBOM, records its dependencies, finds
 every call site, and queues anything brand new for a changelog-source
-lookup), then settles into a long-running process running three daily
-schedulers, in order: draining the changelog-lookup queue, classifying
-releases as breaking or not, and checking Renovate for version update
-suggestions. Whenever a suggestion turns out to already be classified as
-breaking, the automation kicks in: a coding agent builds and tests a
-codemod for the migration, applies it, and opens a PR — no further action
-needed from you beyond reviewing it. Safe to re-run the scan part —
+lookup), then settles into a long-running process running two daily
+schedulers (at midnight), in order: draining the changelog-lookup queue,
+then checking Renovate for version update suggestions. Each upgrade group
+Renovate's suggestions produce goes straight to a coding agent, which
+builds and tests a codemod for the migration; the versions are bumped, the
+codemod applied, and a PR opened — no further action needed from you
+beyond reviewing it. Safe to re-run the scan part —
 unchanged dependencies are skipped entirely, so it's fast even on a large
 repo. Leave the process running.
 
@@ -155,15 +171,21 @@ suggestions, and PRs opened so far — see
 - **The first scan of a large repo can take a few minutes** the first
   time, dominated by the SBOM/dependency-scanning tooling; re-scans are
   fast since only new or version-changed dependencies get re-processed.
-- **Not every breaking update gets a PR.** If your repo's actual call
-  sites don't touch whatever part of the API changed, the generated
-  codemod correctly makes no changes, and no PR is opened — that's
-  expected, not a bug.
+- **Some PRs only bump versions.** If your repo's actual call sites don't
+  touch whatever part of the API changed, the generated codemod correctly
+  makes no changes — the PR then carries just the `package.json`/lockfile
+  bump. That's expected, not a bug.
+- **Only function calls and `new` expressions count as call sites.** A
+  package your code only uses as JSX components (`<Combobox.Root>`) or
+  types records none, so its upgrade is skipped — unless it's grouped with
+  a package that does have call sites.
 - **A change request can take several minutes.** Building and testing a
   codemod is a real coding-agent session, not a single API call.
-- **PRs are opened directly on the repo `--path` points at** (from a
-  branch named `apiweiser-cli/<package>-<version>`), not a fork. Point
-  this at a repo you (or your token) actually have write access to.
+- **PRs are opened directly on the repo `--path` points at**, not a fork,
+  from a branch like `apiweiser-cli/base-ui/react-1.9.0` (or
+  `apiweiser-cli/base-ui/react-1.9.0+date-fns-4.4.0` for a group - see
+  [`docs/github.md`](docs/github.md)). Point this at a repo you (or your
+  token) actually have write access to.
 
 ## Docker
 

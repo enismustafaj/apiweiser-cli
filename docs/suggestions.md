@@ -130,9 +130,8 @@ only run queries against `db.connection`.
 Thin orchestrator, same shape as `DependenciesModule`: `generate(repoPath)`
 runs `RenovateTool`, inserts the resulting updates via
 `SuggestionsRepository`, plans them into groups with `UpgradePlanner`
-(below), then raises a change request for each group that's either a real
-dependency with call sites or a devDependency, before returning the
-updates.
+(below), then raises a change request for each group with call sites,
+before returning the updates.
 
 ## `UpgradePlanner`
 
@@ -225,22 +224,19 @@ why the old classify-the-latest-release-once-a-day design was replaced
 (it measurably missed real breaking changes on two separate test repos).
 For each group from above:
 
-1. `update.depType === "devDependencies"`, checked across **every** member
-   of the group (`isDevDependency` is true only if all of them are),
-   decides whether call sites are even checked. devDependencies are never
-   scanned for call sites at all (see [`docs/scanner.md`](./scanner.md) §
-   devDependencies aren't scanned at all) -
-   `callSitesRepository.findForDependency` would always come back empty
-   for one, so this skips straight to step 2 with `callSites: []` rather
-   than pretending to check. Otherwise, `CallSitesRepository.findForDependency`
-   runs for every member of the group and the results are combined - empty
-   overall means nothing for a codemod to migrate anywhere in the group, so
-   this returns immediately without ever fetching a changelog or
-   summarizing anything. Checked here, not just inside
+1. `CallSitesRepository.findForDependency` runs for every member of the
+   group and the results are combined - empty overall means nothing for a
+   codemod to migrate anywhere in the group, so this returns immediately
+   without ever fetching a changelog or summarizing anything. That's also
+   what skips devDependencies: they're never scanned for call sites (see
+   [`docs/scanner.md`](./scanner.md) § devDependencies aren't scanned at
+   all), so an all-devDependency group always comes back empty. A
+   devDependency grouped with a runtime package that has call sites (a
+   peer it needs) still gets bumped with it. Checked here, not just inside
    `ChangeRequestsModule.create` (which has the same check for defense in
-   depth, minus the devDependency exception - see
-   [`docs/change-requests.md`](./change-requests.md)), specifically to
-   avoid the wasted network/LLM calls, not just the wasted agent session.
+   depth - see [`docs/change-requests.md`](./change-requests.md)),
+   specifically to avoid the wasted network/LLM calls, not just the wasted
+   agent session.
 2. `ChangelogSummarizer.summarize(dependency, currentVersion, newVersion)`
    (see [`docs/data-sources.md`](./data-sources.md)) - fetches and
    summarizes the real changelog for the exact range Renovate proposed,
@@ -253,8 +249,7 @@ For each group from above:
 3. Otherwise, raises a change request via `ChangeRequestsModule.create`
    (see [`docs/change-requests.md`](./change-requests.md)), passing
    `repoPath`, `packages` (one entry per group member), the combined call
-   sites (`[]` for an all-devDependency group), whether the whole group is
-   a devDependency group, and the combined summary - `repoPath` is what
+   sites, and the combined summary - `repoPath` is what
    `GithubModule` (see [`docs/github.md`](./github.md)) applies a
    successful codemod to and opens a PR against. The coding agent itself
    decides whether anything actually needs to change (same resilience

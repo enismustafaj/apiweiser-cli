@@ -65,9 +65,9 @@ sbom's `cdx:npm:package:development` component property) before calling
 `findCallSites` - dev tooling doesn't get "called" from application code
 the way a runtime dependency does, and even where it technically resolves
 (e.g. `@types/react`'s JSX/prop types, used throughout `.tsx` files), that
-isn't a real API call worth migrating with a codemod. See
-[`docs/change-requests.md`](./change-requests.md) for how a devDependency
-upgrade still gets a change request, just without a call-site sample.
+isn't a real API call worth migrating with a codemod. With no call sites,
+an upgrade made only of devDependencies never gets a change request (see
+[`docs/suggestions.md`](./suggestions.md) § Raising change requests).
 
 This is also what keeps `typescript` itself out of the scanner:
 `typescript`'s npm package ships its own standard-library ambient

@@ -6,8 +6,6 @@ import { join } from "node:path";
 
 const REGISTRY_DIR = join(homedir(), ".apiweiser-cli", "codemods");
 
-// ponytail: strip path separators only - good enough for real npm package
-// names, which don't contain them anyway.
 function sanitize(segment: string): string {
   return segment.replace(/[/\\]/g, "_");
 }
@@ -19,12 +17,23 @@ function majorVersion(version: string): string {
 // Shared by pathFor (a directory, joined with "/") and remoteName (a flat
 // registry package name, joined with "-") - both must agree on the same
 // major-crossing-vs-exact-version rule, see docs/change-requests.md.
+// A mixed-scope group passes "+"-joined versions (see registryKeyFor) - the
+// rule then applies per package, so "1.3.0+3.6.0" -> "1.9.0+4.4.0" keys as
+// "1.3.0_to_1.9.0+3_to_4".
+// ponytail: a single version with "+build" metadata gets split too - still a
+// stable, unique key, just an odd-looking one; npm releases almost never
+// carry build metadata.
 function key(fromVersion: string, toVersion: string, separator: string): string {
-  const fromMajor = majorVersion(fromVersion);
-  const toMajor = majorVersion(toVersion);
-  return fromMajor === toMajor
-    ? `${sanitize(fromVersion)}${separator}to${separator}${sanitize(toVersion)}`
-    : `${fromMajor}${separator}to${separator}${toMajor}`;
+  const toVersions = toVersion.split("+");
+  return fromVersion
+    .split("+")
+    .map((from, i) => {
+      const to = toVersions[i] ?? "";
+      return majorVersion(from) === majorVersion(to)
+        ? `${sanitize(from)}${separator}to${separator}${sanitize(to)}`
+        : `${majorVersion(from)}${separator}to${separator}${majorVersion(to)}`;
+    })
+    .join("+");
 }
 
 export class CodemodRegistry {
@@ -56,6 +65,7 @@ export class CodemodRegistry {
   // become a name that still looks scoped.
   remoteName(packageName: string, fromVersion: string, toVersion: string): string {
     const name = sanitize(packageName).replace(/@/g, "");
-    return `${name}-${key(fromVersion, toVersion, "-")}`;
+    // "+" (a mixed-scope group, see registryKeyFor) isn't a safe name char.
+    return `${name}-${key(fromVersion, toVersion, "-")}`.replace(/\+/g, "--");
   }
 }

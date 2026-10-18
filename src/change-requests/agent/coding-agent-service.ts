@@ -50,12 +50,7 @@ export class CodingAgentService {
   }
 
   private buildPrompt(input: ChangeRequestInput, codemodPath: string, remoteName: string): string {
-    const callSitesSection = input.isDevDependency
-      ? this.buildDevDependencySection(input)
-      : this.buildCallSitesSection(input);
-    // Matches whichever noun the section above actually used, so the
-    // shared instructions below read naturally either way.
-    const sitesRef = input.isDevDependency ? "usages you find" : "call sites above";
+    const callSitesSection = this.buildCallSitesSection(input);
     const packageNames = input.packages.map((pkg) => `"${pkg.name}"`).join(", ");
 
     return `/codemod
@@ -82,7 +77,7 @@ one this sample happens to use.
 The current working directory ("${codemodPath}") is this exact upgrade's
 slot in a shared local registry - check first whether a codemod package
 already exists here (e.g. a \`codemod.yaml\`) from a previous repo that hit
-the same upgrade. If one exists, inspect it against the ${sitesRef}: if it
+the same upgrade. If one exists, inspect it against the call sites above: if it
 already covers them, verify it still passes and stop there; if it doesn't
 (e.g. it only handles a different import style, or missed part of the API
 surface), extend it rather than starting over. If nothing exists yet,
@@ -93,7 +88,7 @@ those are what keep this codemod correct for every repo that has already
 used it, not just this one. Only add new fixtures alongside them.
 
 Either way, use the codemod skill's normal workflow: implement (or extend)
-an AST-based transform, add fixtures from the ${sitesRef}, and run the
+an AST-based transform, add fixtures from the call sites above, and run the
 codemod's *entire* test suite - every existing fixture plus the new ones,
 via \`run_jssg_tests\`/\`validate_codemod_package\`, not a filtered or
 partial run - iterating until all of it is green. Do not stop until it is,
@@ -131,7 +126,7 @@ verify a local entry.
     const list = packages
       .map((pkg) => `- "${pkg.name}"@${pkg.version} to @${pkg.newVersion}`)
       .join("\n");
-    return `the following packages, which must be upgraded together (they're\nscope-siblings that peer-depend on each other at matching versions):\n${list}`;
+    return `the following packages, which must be upgraded together (their peer\ndependencies on each other mean none can be installed at its new version alone):\n${list}`;
   }
 
   private buildCallSitesSection(input: ChangeRequestInput): string {
@@ -147,19 +142,6 @@ verify a local entry.
         : " (also inspect the surrounding files yourself - this list may not be exhaustive)"
     }:
 ${callSites}`;
-  }
-
-  private buildDevDependencySection(input: ChangeRequestInput): string {
-    const packageNames = input.packages.map((pkg) => `"${pkg.name}"`).join(", ");
-    return `${packageNames} ${input.packages.length === 1 ? "is a" : "are"} devDependency - no call
-sites were tracked for it (dev tooling isn't scanned as application API
-usage the same way a runtime dependency is). Inspect the repository at
-"${input.repoPath}" yourself (config files, package.json scripts, CI
-config, other code that references ${packageNames}) to figure out what,
-if anything, actually needs to change for this upgrade, based on the
-changelog summary above. If nothing in that repository needs to change,
-that's a valid outcome - report success with
-an empty transform rather than inventing a change that isn't needed.`;
   }
 
   private sampleCallSites(callSites: CallSite[]): CallSite[] {

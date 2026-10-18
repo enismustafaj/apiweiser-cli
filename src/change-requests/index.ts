@@ -24,7 +24,7 @@ export class ChangeRequestsModule {
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
     const label = input.packages.map((pkg) => pkg.name).join(", ");
 
-    if (input.callSites.length === 0 && !input.isDevDependency) {
+    if (input.callSites.length === 0) {
       console.log(
         `ChangeRequestsModule: no call sites for "${label}" - skipping, nothing to migrate.`,
       );

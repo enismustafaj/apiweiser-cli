@@ -208,13 +208,20 @@ that peer-depend on each other (see [`docs/suggestions.md`](./suggestions.md)
    edits, because that repo only used style methods chalk v5 left alone).
 5. `GitTool.remoteRepo(...)` — if `origin` isn't a GitHub remote, returns
    `{ created: false, reason: "origin remote isn't a GitHub repo" }`.
-6. Branches as `apiweiser-cli/<label>-<newVersion>` (sanitized) and commits
-   with `Migrate <label> from <version> to <newVersion>` - for a single
-   package `<label>` is its name; for a group it's the first member's scope
-   (e.g. `@angular`), or every name joined if the first member isn't
-   scoped. That dates from scope-based grouping - a peer group can mix
-   packages now (e.g. `@angular/core` + `rxjs` is labelled just `@angular`),
-   so the label is due a revisit. Pushes, then opens the PR - title is the same message,
+6. Names the branch and commit (`pr-naming.ts`), with the leading `@` of a
+   scope dropped from branch names:
+   - **One package**: `apiweiser-cli/base-ui/react-1.9.0`, `Migrate
+@base-ui/react from 1.3.0 to 1.9.0`.
+   - **A group sharing one scope**: named after it -
+     `apiweiser-cli/angular-20.0.0`, `Migrate @angular packages together
+(@angular/core, @angular/router)`.
+   - **A peer group across scopes** (see
+     [`docs/upgrade-grouping.md`](./upgrade-grouping.md)): every package
+     with its own version - `apiweiser-cli/base-ui/react-1.9.0+date-fns-4.4.0`,
+     `Migrate @base-ui/react from 1.3.0 to 1.9.0, date-fns from 3.6.0 to
+4.4.0`.
+
+   Pushes, then opens the PR - title is the same message,
    body lists every package's `version -> newVersion` plus the combined
    changelog summary and a pointer to the codemod package's local path (see
    [`docs/change-requests.md`](./change-requests.md) § `CodemodRegistry`).

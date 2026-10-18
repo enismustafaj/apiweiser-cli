@@ -10,13 +10,12 @@ apply it and open a PR.
 
 ## `ChangeRequestInput`
 
-| field             | type                     | notes                                                                                 |
-| ----------------- | ------------------------ | ------------------------------------------------------------------------------------- |
-| `repoPath`        | `string`                 | the repo being monitored, for `GithubModule`                                          |
-| `packages`        | `ChangeRequestPackage[]` | usually one; more than one for packages that peer-depend on each other, see below     |
-| `callSites`       | `CallSite[]`             | combined across every package, always `[]` for a devDependency group (see below)      |
-| `isDevDependency` | `boolean`                | from Renovate's `depType`, true only if every package in the group is a devDependency |
-| `summary`         | `string`                 | from `ChangelogSummarizer.summarize`, combined across every package                   |
+| field       | type                     | notes                                                                             |
+| ----------- | ------------------------ | --------------------------------------------------------------------------------- |
+| `repoPath`  | `string`                 | the repo being monitored, for `GithubModule`                                      |
+| `packages`  | `ChangeRequestPackage[]` | usually one; more than one for packages that peer-depend on each other, see below |
+| `callSites` | `CallSite[]`             | combined across every package, never empty from `SuggestionsModule` (see below)   |
+| `summary`   | `string`                 | from `ChangelogSummarizer.summarize`, combined across every package               |
 
 `ChangeRequestPackage` is `{ name, version, newVersion }`. Almost always a
 single-element `packages` array - more than one when `UpgradePlanner`
@@ -29,15 +28,13 @@ registry key, the coding agent prompt, the PR - treats a one-package
 `packages` array and a many-package one the same way, just with different
 wording where a human would notice the difference.
 
-**Why `isDevDependency` matters here**: `DependenciesModule.scan()` never
-scans devDependencies for call sites at all (see
+**devDependencies never get a change request of their own**:
+`DependenciesModule.scan()` never scans devDependencies for call sites (see
 [`docs/scanner.md`](./scanner.md) § devDependencies aren't scanned at
-all) - so `callSites` being empty means two different things depending on
-this flag. For a real dependency, empty means "nothing in this repo
-actually calls it" - skip, there's nothing to migrate. For a
-devDependency, empty is the _normal_, expected case - the agent still gets
-invoked, working from the changelog summary alone (see `CodingAgentService`
-below).
+all), so a group made only of devDependencies has no call sites and is
+skipped like any other group with nothing to migrate. A devDependency only
+shows up here as a member of a group that also has a runtime package with
+call sites - a peer that package needs bumped in the same install.
 
 ## "The codemod way"
 
@@ -97,16 +94,24 @@ returns that directory's path, creating it first if it's missing.
 **For a multi-package group**, `registryKeyFor` (in `registry-key.ts` -
 extracted so `CodingAgentService` doesn't duplicate this logic for the
 local path and the remote registry name, see § Remote registry below)
-computes `packageName` from the group's first member: its scope if it's
-scoped (`@angular`), otherwise every member's name joined with `+`. That
-dates from scope-based grouping; a peer group can now mix packages (e.g.
-`@angular/core` + `rxjs`, labelled just `@angular`), so the label is due a
-revisit (see [`docs/suggestions.md`](./suggestions.md) § Grouping by peer
-dependencies). `fromVersion`/`toVersion` are the widest span across the group's members
-(the lowest current version, the highest new version) - a reasonable
-stand-in for "this exact upgrade" when members don't all move by the exact
-same amount (e.g. `@angular/core` `5→20` alongside `@angular/router`
-`5→22`).
+picks one of two keys:
+
+- **Every member shares one scope**: `packageName` is the scope
+  (`@angular`), and `fromVersion`/`toVersion` are the widest span across
+  the members (the lowest current version, the highest new version) - a
+  reasonable stand-in for "this exact upgrade" when members don't all move
+  by the exact same amount (e.g. `@angular/core` `5→20` alongside
+  `@angular/router` `5→22`).
+- **Members span scopes** (a peer group, see
+  [`docs/upgrade-grouping.md`](./upgrade-grouping.md)): members are sorted
+  by name and `packageName`, `fromVersion` and `toVersion` are each
+  `+`-joined in that order. The key above then applies per member, so
+  `@base-ui/react` `1.3.0→1.9.0` + `date-fns` `3.6.0→4.4.0` lands in
+  `@base-ui_react+date-fns/1.3.0_to_1.9.0+3_to_4/`. A widest span here would
+  mix unrelated version lines (the same group used to land in
+  `@base-ui/1_to_4/`, a range neither package spans, and one a later
+  `@base-ui` group could wrongly reuse). The remote name swaps each `+` for
+  `--`.
 
 Whether an entry that already exists is actually reusable as-is isn't a
 question this class answers - there's no `has()`. That decision is left to
@@ -143,8 +148,8 @@ repo's path explicitly (`input.repoPath`) and tells the agent to read from
 it but not modify it - the codemod is applied to it later, by
 `GithubModule`. The agent doesn't read the whole repo: it opens files on
 its own judgment, typically around the sampled call sites. Without the
-path, "this repo" in the devDependency and remote-registry instructions
-pointed at the codemod folder, and the remote dry-run (`--target`) ran
+path, "this repo" in the remote-registry instructions pointed at the
+codemod folder, and the remote dry-run (`--target`) ran
 against the wrong directory.
 
 **Generalizing beyond the sample repo**: found the hard way, testing
@@ -197,18 +202,6 @@ a filtered run scoped to just the current repo's call sites. That's what
 actually proves a previous repo isn't regressed: not a check that its
 fixture file still exists on disk, but that it still passes.
 
-**devDependencies get a different prompt section, not a shorter one**:
-`buildPrompt` branches on `input.isDevDependency` - a real dependency gets
-the call-site sample described above; a devDependency gets a section
-telling the agent there's no call-site sample (dev tooling isn't scanned,
-see [`docs/scanner.md`](./scanner.md) § devDependencies aren't scanned at
-all), to inspect the repo itself (config files, `package.json` scripts, CI
-config), and that reporting success with no transform at all is a valid
-outcome if nothing in this repo actually needs to change for the upgrade.
-Both branches still ask for the same `CODEMOD_RESULT:` line and the same
-full-test-suite discipline below - only the "what to base the transform
-on" input differs.
-
 **Reporting the result**: an agent session's output is a transcript, not
 structured data. The prompt asks the agent to print exactly one line at the
 end, starting with `CODEMOD_RESULT:`, followed by JSON matching
@@ -224,17 +217,13 @@ Called by `SuggestionsModule` (see [`docs/suggestions.md`](./suggestions.md)
 § Raising change requests) for every proposed update with a summarized
 changelog - there's no breaking/not-breaking gate anymore.
 
-0. If `input.callSites` is empty **and `input.isDevDependency` is false**,
-   returns immediately - `{ success: true, codemodPath: "" }` - without
+0. If `input.callSites` is empty, returns immediately - `{ success: true, codemodPath: "" }` - without
    spawning the coding agent or opening a PR at all. `SuggestionsModule`
    already checks this before calling in (see
    [`docs/suggestions.md`](./suggestions.md)); this is defense in depth for
    any other caller, not the primary guard - there's nothing for a codemod
    to migrate, and a full agent session just to confirm that costs real
-   time and money for a foregone conclusion. A devDependency with no call
-   sites is the normal case (see [`docs/scanner.md`](./scanner.md) §
-   devDependencies aren't scanned at all), so this check doesn't apply to
-   it - it still reaches step 1.
+   time and money for a foregone conclusion.
 1. Otherwise, `CodingAgentService.generateCodemod(input)` - always, whether
    or not a
    codemod already exists for this package + version pair (see
