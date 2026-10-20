@@ -5,7 +5,13 @@ import type { AppConfig } from "./config.ts";
 
 const DEFAULT_CONFIG_PATH = join(homedir(), ".apiweiser-cli", "config.json");
 
-const TEMPLATE: AppConfig = {
+// config.json as written by hand - codemodRegistry may be absent, and its
+// fields aren't trusted until checked below.
+type RawConfig = Omit<AppConfig, "codemodRegistry"> & {
+  codemodRegistry?: { mode?: string; scope?: string; apiKey?: string };
+};
+
+const TEMPLATE: RawConfig = {
   llm: {
     apiKey: "",
     url: "https://api.openai.com/v1",
@@ -30,7 +36,7 @@ export class ConfigLoader {
       );
     }
 
-    const config = JSON.parse(readFileSync(configPath, "utf8")) as AppConfig;
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as RawConfig;
     if (!config.llm?.apiKey || !config.llm?.url || !config.llm?.model) {
       throw new Error(`Config at ${configPath} is missing llm.apiKey, llm.url, or llm.model.`);
     }
@@ -40,14 +46,26 @@ export class ConfigLoader {
     if (!config.github?.token) {
       throw new Error(`Config at ${configPath} is missing github.token.`);
     }
-    if (config.codemodRegistry?.mode === "remote") {
-      if (!config.codemodRegistry.scope || !config.codemodRegistry.apiKey) {
-        throw new Error(
-          `Config at ${configPath} has codemodRegistry.mode: "remote" but is missing ` +
-            `codemodRegistry.scope or codemodRegistry.apiKey.`,
-        );
-      }
+
+    const registry = config.codemodRegistry ?? { mode: "local" };
+    if (registry.mode === "local") {
+      return { ...config, codemodRegistry: { mode: "local" } };
     }
-    return config;
+    if (registry.mode !== "remote") {
+      throw new Error(
+        `Config at ${configPath} has codemodRegistry.mode: "${registry.mode}" - ` +
+          `expected "local" or "remote".`,
+      );
+    }
+    if (!registry.scope || !registry.apiKey) {
+      throw new Error(
+        `Config at ${configPath} has codemodRegistry.mode: "remote" but is missing ` +
+          `codemodRegistry.scope or codemodRegistry.apiKey.`,
+      );
+    }
+    return {
+      ...config,
+      codemodRegistry: { mode: "remote", scope: registry.scope, apiKey: registry.apiKey },
+    };
   }
 }

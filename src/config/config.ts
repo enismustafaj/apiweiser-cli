@@ -13,17 +13,20 @@ export interface GithubConfig {
   token: string;
 }
 
-export type CodemodRegistryMode = "local" | "remote";
-
-export interface CodemodRegistryConfig {
-  mode: CodemodRegistryMode;
-  scope?: string;
-  apiKey?: string;
+export interface RemoteCodemodRegistryConfig {
+  mode: "remote";
+  scope: string;
+  apiKey: string;
 }
+
+// Checking `mode === "remote"` narrows to the variant that has scope and
+// apiKey, so nothing downstream has to re-check they're present.
+export type CodemodRegistryConfig = { mode: "local" } | RemoteCodemodRegistryConfig;
 
 export interface AppConfig {
   llm: LlmConfig;
   codingAgent: CodingAgentConfig;
   github: GithubConfig;
-  codemodRegistry?: CodemodRegistryConfig;
+  // Optional in config.json; ConfigLoader fills in { mode: "local" }.
+  codemodRegistry: CodemodRegistryConfig;
 }

@@ -22,7 +22,8 @@ migrating your call sites when the changelog says they need it.
    bumps the versions, applies the codemod, and opens a PR.
 
 Steps 2 and 3 each run once a day, in that order, for as long as the
-process keeps running.
+process keeps running — or, with `--once`, right after the scan, and then
+the process exits.
 
 There's no breaking-change filter: every group gets a change request, minor
 and patch updates included. Groups are skipped only when the scan found no
@@ -85,8 +86,8 @@ node src/main.ts --path <path-to-repo>
 ## Configure
 
 Every run needs `~/.apiweiser-cli/config.json` filled in — even a plain
-scan, since the process always starts two daily background schedulers
-alongside it (see [Usage](#usage)). Run the CLI once with no config and it
+scan, since every run goes on to the changelog-lookup and suggestion jobs
+(see [Usage](#usage)). Run the CLI once with no config and it
 creates a template for you there, then exits with an error telling you to
 fill it in:
 
@@ -152,6 +153,16 @@ beyond reviewing it. Safe to re-run the scan part —
 unchanged dependencies are skipped entirely, so it's fast even on a large
 repo. Leave the process running.
 
+To run everything once instead — scan, changelog lookups, suggestions and
+any PRs, right away — and exit, add `--once`:
+
+```sh
+node src/main.ts scan --repo <git-url> --once
+```
+
+Handy for trying it out, or for driving it from your own cron/CI instead of
+leaving a process up.
+
 All state lives in `~/.apiweiser-cli/` — the sqlite db, the config file,
 SBOM/Renovate caches, clones made via `--repo`, and generated codemod
 packages — separate from whatever repo is actually being scanned.
@@ -199,6 +210,6 @@ docker run --rm \
 
 The repo being scanned is mounted read-only at `/repo`. The named volume
 persists `~/.apiweiser-cli/` (db, config, caches) across runs — drop it and
-you lose scan history/config. Every run is long-running (see
+you lose scan history/config. A run is long-running by default (see
 [Usage](#usage)), so add `-d` to run detached rather than blocking the
-terminal.
+terminal — or append `--once` to run everything once and exit.

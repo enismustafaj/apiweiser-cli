@@ -11,8 +11,8 @@ export class ChangelogSummarizer {
   private readonly summarizerAgent: ChangelogSummarizerAgent;
   private readonly dataSourcesRepository = new DataSourcesRepository(db);
 
-  constructor(llmConfig: LlmConfig, githubConfig?: GithubConfig) {
-    this.releaseFetcher = new GitHubReleaseFetcher(githubConfig?.token);
+  constructor(llmConfig: LlmConfig, githubConfig: GithubConfig) {
+    this.releaseFetcher = new GitHubReleaseFetcher(githubConfig.token);
     this.summarizerAgent = new ChangelogSummarizerAgent(llmConfig);
   }
 

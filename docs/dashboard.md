@@ -124,7 +124,7 @@ returns the underlying server handle.
 `src/main.ts` is now two subcommands rather than one flat command:
 
 - `apiweiser-cli scan --path <path>` - the original scan-and-schedule
-  behavior. Registered with `commander`'s `isDefault: true`, so the
+  behavior (or scan-and-run-once-then-exit, with `--once`). Registered with `commander`'s `isDefault: true`, so the
   existing `apiweiser-cli --path <path>` invocation still works unchanged;
   `scan` only needs to be typed explicitly to see `--help` for it
   specifically.

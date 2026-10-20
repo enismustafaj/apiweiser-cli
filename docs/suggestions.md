@@ -263,24 +263,12 @@ own rate-limit/cost problem. Wrapped in try/catch and logged on failure,
 same resilience pattern as everywhere else in this CLI, so one failed
 attempt doesn't crash the rest of `generate()`. Needs `llm`, `codingAgent`,
 and `github` filled in in config (see [`docs/config.md`](./config.md)) -
-`SuggestionsModule`'s constructor takes all three directly.
+`SuggestionsModule`'s constructor takes the whole `AppConfig` and hands
+each piece to the module that needs it.
 
-## `Scheduler`
+## Scheduling
 
-Wraps `node-cron` so `SuggestionsModule.generate` can run on a recurring
-schedule instead of once - constructed with `repoPath`, a cron expression
-(e.g. every day at 09:00), and the coding-agent/GitHub config, then
-`.start()`/`.stop()`. Built with `createTask` (not `schedule`) specifically so the task exists but
-sits idle until `.start()` is called — `Scheduler.start()`/`.stop()` map
-directly onto it. Each tick calls a private `run()` that catches and
-`console.error`s any failure, so one bad run (network blip, Renovate crash,
-whatever) doesn't kill the whole schedule.
-
-## CLI
-
-Not behind a flag - `main.ts` always constructs and starts this
-`Scheduler` too, with a fixed once-a-day cron (`"0 0 * * *"`; the class
-itself still takes any expression, see above), after the changelog-lookup
-scheduler (see [`docs/data-sources.md`](./data-sources.md)). `--path`
-always runs `DependenciesModule.scan` once first; `SuggestionsScheduler` is
-constructed with that same `repoPath`.
+`generate(repoPath)` runs as `SuggestionsJob` - daily, or once with `scan
+--once`, always after the changelog lookup job (see
+[`docs/jobs.md`](./jobs.md)). `scan` always runs `DependenciesModule.scan`
+first, and the job is built with that same `repoPath`.

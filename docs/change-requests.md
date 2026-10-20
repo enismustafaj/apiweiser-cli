@@ -293,7 +293,8 @@ apply. `RemoteCodemodRegistry.publish(codemodPath)`:
      defaults to.
 2. `npx codemod publish <codemodPath>`.
 
-Throws immediately, before attempting either step, if `mode` isn't
-`"remote"` or `scope`/`apiKey` is missing - a defensive check that mirrors
-`ConfigLoader`'s own validation, since this class can also be constructed
-directly (e.g. in tests) without going through it.
+The constructor only accepts the remote variant of `CodemodRegistryConfig`
+(see [`docs/config.md`](./config.md)), so `scope` and `apiKey` are
+guaranteed by the type rather than re-checked here. `ChangeRequestsModule`
+only builds one when `mode === "remote"`; in local mode it holds `null` and
+skips publishing.

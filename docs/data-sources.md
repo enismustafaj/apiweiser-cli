@@ -137,22 +137,14 @@ per entry — no subquery, since callers already have the id on hand. See
 [`docs/database.md`](./database.md) for why this one doesn't need the
 by-name subquery `CallSitesRepository` uses.
 
-## `Scheduler` (changelog-lookup-scheduler.ts)
+## Scheduling
 
-Same shape as `suggestions/suggestions-scheduler.ts`: wraps `node-cron`'s `createTask`
-so the task exists but sits idle until `.start()`, and each tick catches
-and logs any failure from `processPendingLookups()` rather than letting
-one bad tick kill the schedule. Constructed with a cron expression (e.g.
-every 5 minutes), then `.start()`/`.stop()`.
-
-## CLI
-
-Not behind a flag - `main.ts` always constructs and starts this
-`Scheduler` (after the required `--path` scan finishes), with a fixed
-once-a-day cron (`"0 0 * * *"`; the class itself still takes any
-expression, see above). The queue itself is global (keyed by package name,
-not tied to any one repo) - `--path` is required by the CLI regardless,
-but draining this particular queue doesn't depend on what was scanned.
+`processPendingLookups()` runs as `ChangelogLookupJob` - daily, or once with
+`scan --once`, always before the suggestions job (see
+[`docs/jobs.md`](./jobs.md)). The queue itself is global (keyed by package
+name, not tied to any one repo) - a scan target is required by the CLI
+regardless, but draining this particular queue doesn't depend on what was
+scanned.
 
 ## Changelog summarization
 

@@ -1,12 +1,7 @@
 import { resolve } from "node:path";
 import { ChangelogSummarizer } from "../data-sources/changelog-summarizer.ts";
 import { ChangeRequestsModule } from "../change-requests/index.ts";
-import type {
-  CodemodRegistryConfig,
-  CodingAgentConfig,
-  GithubConfig,
-  LlmConfig,
-} from "../config/config.ts";
+import type { AppConfig } from "../config/config.ts";
 import { CallSitesRepository } from "../dependencies/db/call-sites-repository.ts";
 import { PackagesRepository } from "../dependencies/db/packages-repository.ts";
 import { db } from "../db/singleton.ts";
@@ -23,17 +18,12 @@ export class SuggestionsModule {
   private readonly changelogSummarizer: ChangelogSummarizer;
   private readonly changeRequests: ChangeRequestsModule;
 
-  constructor(
-    llmConfig: LlmConfig,
-    codingAgentConfig: CodingAgentConfig,
-    githubConfig: GithubConfig,
-    codemodRegistryConfig?: CodemodRegistryConfig,
-  ) {
-    this.changelogSummarizer = new ChangelogSummarizer(llmConfig, githubConfig);
+  constructor(config: AppConfig) {
+    this.changelogSummarizer = new ChangelogSummarizer(config.llm, config.github);
     this.changeRequests = new ChangeRequestsModule(
-      codingAgentConfig,
-      githubConfig,
-      codemodRegistryConfig,
+      config.codingAgent,
+      config.github,
+      config.codemodRegistry,
     );
   }
 

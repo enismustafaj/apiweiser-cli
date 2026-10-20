@@ -69,7 +69,7 @@ test("load returns the parsed config when it's complete", () => {
 
   const result = new ConfigLoader().load(configPath);
 
-  assert.deepEqual(result, config);
+  assert.deepEqual(result, { ...config, codemodRegistry: { mode: "local" } });
 });
 
 // codemodRegistry itself stays optional - omitting it means "local" - but
@@ -126,5 +126,35 @@ test('load succeeds when codemodRegistry.mode is "remote" with scope and apiKey'
   };
   writeFileSync(configPath, JSON.stringify(config));
 
-  assert.doesNotThrow(() => new ConfigLoader().load(configPath));
+  assert.deepEqual(new ConfigLoader().load(configPath).codemodRegistry, config.codemodRegistry);
+});
+
+// Before, any mode other than "remote" silently meant local - a typo like
+// "remtoe" would quietly never publish.
+test("load throws on an unknown codemodRegistry.mode", () => {
+  const configPath = tempConfigPath();
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+    codemodRegistry: { mode: "remtoe", scope: "my-org", apiKey: "key" },
+  };
+  writeFileSync(configPath, JSON.stringify(config));
+
+  assert.throws(() => new ConfigLoader().load(configPath), /expected "local" or "remote"/);
+});
+
+// Stray fields on a local config (e.g. an apiKey kept for switching to
+// remote later) are dropped, so nothing downstream sees them.
+test('load keeps only mode for codemodRegistry.mode: "local"', () => {
+  const configPath = tempConfigPath();
+  const config = {
+    llm: { apiKey: "sk-test", url: "https://api.openai.com/v1", model: "gpt-5" },
+    codingAgent: { command: "claude", args: ["-p"] },
+    github: { token: "ghp_test" },
+    codemodRegistry: { mode: "local", apiKey: "kept-for-later" },
+  };
+  writeFileSync(configPath, JSON.stringify(config));
+
+  assert.deepEqual(new ConfigLoader().load(configPath).codemodRegistry, { mode: "local" });
 });

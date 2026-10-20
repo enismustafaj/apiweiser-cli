@@ -15,9 +15,12 @@ const MAX_CALL_SITES_PER_SURFACE = 3;
 export class CodingAgentService {
   private readonly config: CodingAgentConfig;
   private readonly registry: CodemodRegistry = new CodemodRegistry();
-  private readonly codemodRegistryConfig?: CodemodRegistryConfig;
+  private readonly codemodRegistryConfig: CodemodRegistryConfig;
 
-  constructor(config: CodingAgentConfig, codemodRegistryConfig?: CodemodRegistryConfig) {
+  constructor(
+    config: CodingAgentConfig,
+    codemodRegistryConfig: CodemodRegistryConfig = { mode: "local" },
+  ) {
     this.config = config;
     this.codemodRegistryConfig = codemodRegistryConfig;
   }
@@ -102,7 +105,7 @@ with "${RESULT_MARKER}" followed by JSON matching
   }
 
   private remoteRegistrySection(remoteName: string, repoPath: string): string {
-    if (this.codemodRegistryConfig?.mode !== "remote") return "";
+    if (this.codemodRegistryConfig.mode !== "remote") return "";
 
     return `
 Also check the public codemod registry before scaffolding fresh -

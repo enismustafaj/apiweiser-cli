@@ -7,18 +7,20 @@ import type { ChangeRequestInput, CodemodResult } from "./types.ts";
 export class ChangeRequestsModule {
   private readonly codingAgentService: CodingAgentService;
   private readonly github: GithubModule;
-  private readonly remoteRegistry: RemoteCodemodRegistry;
-  private readonly canPublish: boolean;
+  // Only in remote mode - null means codemods stay local, nothing to publish.
+  private readonly remoteRegistry: RemoteCodemodRegistry | null;
 
   constructor(
     codingAgentConfig: CodingAgentConfig,
     githubConfig: GithubConfig,
-    codemodRegistryConfig?: CodemodRegistryConfig,
+    codemodRegistryConfig: CodemodRegistryConfig = { mode: "local" },
   ) {
     this.codingAgentService = new CodingAgentService(codingAgentConfig, codemodRegistryConfig);
     this.github = new GithubModule(githubConfig);
-    this.remoteRegistry = new RemoteCodemodRegistry(codemodRegistryConfig);
-    this.canPublish = codemodRegistryConfig?.mode === "remote";
+    this.remoteRegistry =
+      codemodRegistryConfig.mode === "remote"
+        ? new RemoteCodemodRegistry(codemodRegistryConfig)
+        : null;
   }
 
   async create(input: ChangeRequestInput): Promise<CodemodResult> {
@@ -61,7 +63,7 @@ export class ChangeRequestsModule {
   }
 
   private async publishIfConfigured(codemodPath: string, label: string): Promise<void> {
-    if (!this.canPublish) return;
+    if (!this.remoteRegistry) return;
 
     try {
       await this.remoteRegistry.publish(codemodPath);
