@@ -1,11 +1,14 @@
 import { resolve } from "node:path";
 import { DataSourcesModule } from "../data-sources/index.ts";
 import { db } from "../db/singleton.ts";
+import { logger } from "../logger.ts";
 import { CallSitesRepository } from "./db/call-sites-repository.ts";
 import { PackagesRepository } from "./db/packages-repository.ts";
 import { Scanner } from "./scanner/scanner.ts";
 import { SbomTool } from "./sbom/sbom-tool.ts";
 import type { CallSite } from "./types.ts";
+
+const log = logger("dependencies");
 
 export class DependenciesModule {
   private readonly sbomTool = new SbomTool();
@@ -19,8 +22,10 @@ export class DependenciesModule {
     // regardless of relative/absolute path or cwd.
     const absoluteRepoPath = resolve(repoPath);
 
+    log.info(`Generating SBOM for ${absoluteRepoPath}`);
     const dependencies = await this.sbomTool.generate(absoluteRepoPath);
     const changedOrNew = this.packagesRepository.findChangedOrNew(absoluteRepoPath, dependencies);
+    log.info(`${dependencies.length} dependencies, ${changedOrNew.length} changed or new`);
     if (changedOrNew.length === 0) return [];
 
     // Must run before upsert() - upsert() gives every dependency a row.
@@ -39,7 +44,9 @@ export class DependenciesModule {
     // positions, never a real API call worth migrating with a codemod.
     // ChangeRequestsModule falls back to changelog-only context for these.
     const runtimeDependencies = changedOrNew.filter((dependency) => !dependency.isDevDependency);
+    log.info(`Scanning call sites for ${runtimeDependencies.length} runtime dependencies`);
     const callSites = await this.scanner.findCallSites(absoluteRepoPath, runtimeDependencies);
+    log.info(`Found ${callSites.length} call sites`);
     this.callSitesRepository.insert(absoluteRepoPath, callSites);
 
     this.dataSourcesModule.enqueueForLookup(newDependencies);

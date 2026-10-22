@@ -1,6 +1,9 @@
 // See docs/jobs.md.
 
 import { createTask } from "node-cron";
+import { logger } from "../logger.ts";
+
+const log = logger("jobs");
 
 // One unit of background work - what to run, kept separate from when
 // (Scheduler) so the same job runs on a cron or once, unchanged.
@@ -28,11 +31,18 @@ export class Scheduler {
   // schedule survives.
   async runAll(): Promise<void> {
     for (const job of this.jobs) {
+      const startedAt = Date.now();
+      log.info(`${job.name} job started`);
       try {
         await job.run();
+        log.info(`${job.name} job finished in ${seconds(startedAt)}s`);
       } catch (err) {
-        console.error(`${job.name} job failed:`, err);
+        log.error(`${job.name} job failed after ${seconds(startedAt)}s:`, err);
       }
     }
   }
+}
+
+function seconds(since: number): string {
+  return ((Date.now() - since) / 1000).toFixed(1);
 }

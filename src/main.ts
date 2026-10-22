@@ -9,9 +9,12 @@ import { RepoCloner } from "./github/tool/repo-cloner.ts";
 import { ChangelogLookupJob } from "./jobs/changelog-lookup-job.ts";
 import { Scheduler } from "./jobs/scheduler.ts";
 import { SuggestionsJob } from "./jobs/suggestions-job.ts";
+import { logger } from "./logger.ts";
 import { SuggestionsModule } from "./suggestions/index.ts";
 
 const DAILY_CRON = "0 0 * * *";
+
+const log = logger("cli");
 
 const app = new Command();
 
@@ -25,7 +28,7 @@ app
   .action(async (opts: { path?: string; repo?: string; once?: boolean }) => {
     // true when both or neither are set
     if (!opts.path === !opts.repo) {
-      console.error("Provide exactly one of --path or --repo.");
+      log.error("Provide exactly one of --path or --repo.");
       process.exit(1);
     }
 
@@ -33,7 +36,9 @@ app
 
     let repoPath: string;
     if (opts.repo) {
+      log.info(`Cloning ${opts.repo}`);
       repoPath = await new RepoCloner(config.github).cloneOrPull(opts.repo);
+      log.info(`Installing dependencies in ${repoPath}`);
       await new DependencyInstaller().install(repoPath);
     } else {
       repoPath = opts.path!;
@@ -49,8 +54,10 @@ app
 
     if (opts.once) {
       await scheduler.runAll();
+      log.info("Done");
     } else {
       scheduler.start();
+      log.info(`Scheduled jobs on "${DAILY_CRON}"`);
     }
   });
 

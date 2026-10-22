@@ -1,10 +1,13 @@
 import type { Dependency } from "../dependencies/types.ts";
 import { db } from "../db/singleton.ts";
+import { logger } from "../logger.ts";
 import { DataSourcesRepository } from "./db/data-sources-repository.ts";
 import { PendingChangelogLookupsRepository } from "./db/pending-changelog-lookups-repository.ts";
 import { NpmRegistryLookup } from "./npm-registry-lookup.ts";
 
 const BATCH_SIZE = 50;
+
+const log = logger("data-sources");
 
 export class DataSourcesModule {
   private readonly npmRegistryLookup = new NpmRegistryLookup();
@@ -22,6 +25,7 @@ export class DataSourcesModule {
   // error leaves the entry queued for the next tick.
   async processPendingLookups(): Promise<void> {
     const batch = this.pendingLookupsRepository.takeBatch(BATCH_SIZE);
+    log.info(`Looking up changelog sources for ${batch.length} packages`);
 
     for (const { pendingId, packageId, packageName } of batch) {
       try {
@@ -29,11 +33,11 @@ export class DataSourcesModule {
         if (url) {
           this.dataSourcesRepository.insert(new Map([[packageId, url]]));
         } else {
-          console.log(`DataSourcesModule: no changelog source found for "${packageName}"`);
+          log.debug(`No changelog source found for "${packageName}"`);
         }
         this.pendingLookupsRepository.remove(pendingId);
       } catch (err) {
-        console.error(`DataSourcesModule: lookup failed for "${packageName}", will retry:`, err);
+        log.warn(`Lookup failed for "${packageName}", will retry:`, err);
       }
     }
   }

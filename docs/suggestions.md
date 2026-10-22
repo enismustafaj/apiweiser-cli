@@ -66,7 +66,7 @@ reliably fails a later step (writing update branches) even on a totally
 successful scan, because that platform mode can't push branches — a
 `platform=local` limitation, not a real error. The report file is written
 _before_ that step runs, so the non-zero exit is caught and logged at
-`console.debug` (in case it's ever something else) rather than thrown -
+debug level (in case it's ever something else) rather than thrown -
 the failure is swallowed (logged at debug level in case it's ever something
 else) and the code moves on to read the report file regardless. If the
 report is genuinely missing or malformed — Renovate itself failed, not just

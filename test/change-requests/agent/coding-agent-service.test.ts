@@ -6,8 +6,8 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { CodingAgentService } from "../../../src/change-requests/agent/coding-agent-service.ts";
@@ -172,4 +172,31 @@ test("buildPrompt omits the remote registry section when no scope is configured"
   const prompt = readFileSync(join(codemodPath, "prompt-capture.txt"), "utf8");
 
   assert.doesNotMatch(prompt, /Also check the public codemod registry/);
+});
+
+test("generateCodemod saves a failed agent's full output to a log file", async () => {
+  const packageName = `test-pkg-${randomUUID()}`;
+  createdPackageDirs.push(join(homedir(), ".apiweiser-cli", "codemods", packageName));
+  const logsDir = mkdtempSync(join(tmpdir(), "apiweiser-cli-logs-test-"));
+  createdPackageDirs.push(logsDir);
+  const script = `console.log("agent transcript"); console.error("agent stderr"); process.exit(1);`;
+  const service = new CodingAgentService(
+    { command: "node", args: ["-e", script] },
+    { mode: "local" },
+    logsDir,
+  );
+
+  const result = await service.generateCodemod({
+    repoPath: "/repos/a",
+    packages: [{ name: packageName, version: "1.0.0", newVersion: "2.0.0" }],
+    callSites: [callSite("Foo.bar", 1)],
+    summary: "breaking release",
+  });
+
+  assert.equal(result.success, false);
+  const [file] = readdirSync(logsDir);
+  assert.ok(file?.startsWith(packageName));
+  const output = readFileSync(join(logsDir, file!), "utf8");
+  assert.match(output, /agent transcript/);
+  assert.match(output, /agent stderr/);
 });

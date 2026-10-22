@@ -4,12 +4,15 @@ import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { logger } from "../../logger.ts";
 import type { RenovateUpdate } from "../types.ts";
 import type { RenovateReport } from "./renovate-report.ts";
 
 const execFileAsync = promisify(execFile);
 
 const CACHE_DIR = join(homedir(), ".apiweiser-cli", "renovate");
+
+const log = logger("renovate");
 
 export class RenovateTool {
   async run(repoPath: string): Promise<RenovateUpdate[]> {
@@ -61,7 +64,7 @@ export class RenovateTool {
         },
       );
     } catch (err) {
-      console.debug("renovate exited non-zero (ignored, trusting the report file):", err);
+      log.debug("Renovate exited non-zero (ignored, trusting the report file):", err);
     }
   }
 

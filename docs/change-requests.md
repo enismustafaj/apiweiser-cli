@@ -208,8 +208,12 @@ end, starting with `CODEMOD_RESULT:`, followed by JSON matching
 `{ success: boolean, codemodPath: string, reason?: string }`.
 `CodingAgentService` looks for that line (from the end, in case the agent's
 transcript happens to mention the marker elsewhere) and parses it; a
-missing or unparseable line is treated as failure, logging the raw output
-for debugging rather than guessing.
+missing or unparseable line is treated as failure rather than guessing.
+
+On any failure (the agent exits non-zero, reports `success: false`, or
+gives no usable result line) its full stdout and stderr are written to
+`~/.apiweiser-cli/logs/<package>-<timestamp>.log`, and only that path is
+logged - the transcript can be tens of MB, too much for the console.
 
 ## `ChangeRequestsModule.create(input)`
 

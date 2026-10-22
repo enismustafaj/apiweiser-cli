@@ -5,10 +5,13 @@ import type { AppConfig } from "../config/config.ts";
 import { CallSitesRepository } from "../dependencies/db/call-sites-repository.ts";
 import { PackagesRepository } from "../dependencies/db/packages-repository.ts";
 import { db } from "../db/singleton.ts";
+import { logger } from "../logger.ts";
 import { SuggestionsRepository } from "./db/suggestions-repository.ts";
 import { UpgradePlanner } from "./group-updates.ts";
 import { RenovateTool } from "./tool/renovate-tool.ts";
 import type { RenovateUpdate } from "./types.ts";
+
+const log = logger("suggestions");
 
 export class SuggestionsModule {
   private readonly renovateTool = new RenovateTool();
@@ -30,14 +33,22 @@ export class SuggestionsModule {
   async generate(repoPath: string): Promise<RenovateUpdate[]> {
     const absoluteRepoPath = resolve(repoPath);
 
+    log.info(`Running Renovate on ${absoluteRepoPath}`);
     const updates = await this.renovateTool.run(absoluteRepoPath);
+    log.info(`Renovate found ${updates.length} updates`);
     this.suggestionsRepository.insert(absoluteRepoPath, updates);
 
     const plan = await UpgradePlanner.forRepo(absoluteRepoPath, this.packagesRepository).plan(
       updates,
     );
 
-    for (const group of plan.groups) {
+    for (const { dependency, reason } of plan.skipped) {
+      log.info(`Skipping "${dependency}": ${reason}`);
+    }
+    log.info(`Planned ${plan.groups.length} upgrade groups`);
+
+    for (const [i, group] of plan.groups.entries()) {
+      log.info(`Group ${i + 1}/${plan.groups.length}: ${describe(group)}`);
       await this.raiseChangeRequest(absoluteRepoPath, group);
     }
 
@@ -45,15 +56,15 @@ export class SuggestionsModule {
   }
 
   private async raiseChangeRequest(repoPath: string, group: RenovateUpdate[]): Promise<void> {
-    // devDependencies are never scanned for call sites (see
-    // DependenciesModule.scan), so an all-devDependency group always has
-    // none and is skipped here. A devDependency grouped with a runtime
-    // package (a peer it needs) still gets bumped along with it.
     const callSites = group.flatMap((update) =>
       this.callSitesRepository.findForDependency(repoPath, update.dependency),
     );
-    if (callSites.length === 0) return;
+    if (callSites.length === 0) {
+      log.info("No call sites - skipping");
+      return;
+    }
 
+    log.info(`Summarizing changelogs (${callSites.length} call sites)`);
     const summaries: string[] = [];
     for (const update of group) {
       try {
@@ -65,13 +76,13 @@ export class SuggestionsModule {
         if (summary)
           summaries.push(group.length === 1 ? summary : `## ${update.dependency}\n${summary}`);
       } catch (err) {
-        console.error(
-          `SuggestionsModule: changelog summarize failed for "${update.dependency}":`,
-          err,
-        );
+        log.error(`Changelog summarize failed for "${update.dependency}":`, err);
       }
     }
-    if (summaries.length === 0) return;
+    if (summaries.length === 0) {
+      log.info("No changelog summary available - skipping");
+      return;
+    }
 
     const label = group.map((update) => update.dependency).join(", ");
     try {
@@ -86,7 +97,13 @@ export class SuggestionsModule {
         summary: summaries.join("\n\n"),
       });
     } catch (err) {
-      console.error(`SuggestionsModule: change request failed for "${label}":`, err);
+      log.error(`Change request failed for "${label}":`, err);
     }
   }
+}
+
+function describe(group: RenovateUpdate[]): string {
+  return group
+    .map((update) => `${update.dependency} ${update.currentVersion} -> ${update.newVersion}`)
+    .join(", ");
 }

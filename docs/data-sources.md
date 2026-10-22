@@ -123,12 +123,12 @@ each `Dependency.id` is set — see the `RETURNING id` note in
      entirely, never written anywhere. Insert-then-remove, per package,
      closes that window.
    - **Resolves to `null`** (no repository data — a definitive answer) →
-     logged via `console.log`, and the entry is **still removed** from the
+     logged at debug level, and the entry is **still removed** from the
      queue. There's nothing to retry; leaving it queued would just burn
      one of every future tick's budget on a package that will never
      resolve.
-   - **Throws** (network failure, `429`, ...) → logged via
-     `console.error`, entry **stays queued** for the next tick.
+   - **Throws** (network failure, `429`, ...) → logged as a
+     warning, entry **stays queued** for the next tick.
 
 ## `DataSourcesRepository.insert(sources)`
 

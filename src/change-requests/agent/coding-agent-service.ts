@@ -1,28 +1,39 @@
 import { execFile } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import type { CodemodRegistryConfig, CodingAgentConfig } from "../../config/config.ts";
 import type { CallSite } from "../../dependencies/types.ts";
+import { logger } from "../../logger.ts";
 import { registryKeyFor } from "../registry-key.ts";
 import { CodemodRegistry } from "../registry/codemod-registry.ts";
 import type { ChangeRequestInput, ChangeRequestPackage, CodemodResult } from "../types.ts";
 
 const execFileAsync = promisify(execFile);
 
+const log = logger("coding-agent");
+
 const RESULT_MARKER = "CODEMOD_RESULT:";
 
 const MAX_CALL_SITES_PER_SURFACE = 3;
+
+const LOGS_DIR = join(homedir(), ".apiweiser-cli", "logs");
 
 export class CodingAgentService {
   private readonly config: CodingAgentConfig;
   private readonly registry: CodemodRegistry = new CodemodRegistry();
   private readonly codemodRegistryConfig: CodemodRegistryConfig;
+  private readonly logsDir: string;
 
   constructor(
     config: CodingAgentConfig,
     codemodRegistryConfig: CodemodRegistryConfig = { mode: "local" },
+    logsDir: string = LOGS_DIR,
   ) {
     this.config = config;
     this.codemodRegistryConfig = codemodRegistryConfig;
+    this.logsDir = logsDir;
   }
 
   async generateCodemod(input: ChangeRequestInput): Promise<CodemodResult> {
@@ -31,25 +42,40 @@ export class CodingAgentService {
     const remoteName = this.registry.remoteName(label, fromVersion, toVersion);
     const prompt = this.buildPrompt(input, codemodPath, remoteName);
 
-    let stdout: string;
+    let output: string;
+    let result: CodemodResult;
     try {
-      ({ stdout } = await execFileAsync(this.config.command, [...this.config.args, prompt], {
-        cwd: codemodPath,
-        maxBuffer: 1024 * 1024 * 50,
-      }));
-    } catch (err) {
-      const errStdout = this.stdoutOf(err);
-      console.error(
-        `CodingAgentService: agent process failed for "${label}". stdout:\n${errStdout}`,
+      const { stdout, stderr } = await execFileAsync(
+        this.config.command,
+        [...this.config.args, prompt],
+        { cwd: codemodPath, maxBuffer: 1024 * 1024 * 50 },
       );
-      return {
+      output = `${stdout}\n--- stderr ---\n${stderr}`;
+      result = this.parseResult(stdout, codemodPath);
+    } catch (err) {
+      output = this.outputOf(err);
+      result = {
         success: false,
         codemodPath,
         reason: err instanceof Error ? err.message : String(err),
       };
     }
 
-    return this.parseResult(stdout, codemodPath);
+    if (!result.success) {
+      const file = await this.saveOutput(label, output);
+      log.error(`Agent failed for "${label}" (${result.reason}). Full output: ${file}`);
+    }
+    return result;
+  }
+
+  // Up to 50 MB of transcript - too much for the console, but the only way
+  // to see why the agent gave up.
+  private async saveOutput(label: string, output: string): Promise<string> {
+    await mkdir(this.logsDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = join(this.logsDir, `${label.replace(/[^\w.-]+/g, "_")}-${stamp}.log`);
+    await writeFile(file, output);
+    return file;
   }
 
   private buildPrompt(input: ChangeRequestInput, codemodPath: string, remoteName: string): string {
@@ -166,9 +192,6 @@ ${callSites}`;
       .find((candidate) => candidate.includes(RESULT_MARKER));
 
     if (!line) {
-      console.error(
-        `CodingAgentService: agent produced no ${RESULT_MARKER} line, treating as failure. Raw output:\n${stdout}`,
-      );
       return { success: false, codemodPath, reason: "agent did not report a result" };
     }
 
@@ -177,16 +200,13 @@ ${callSites}`;
       const result = JSON.parse(json) as CodemodResult;
       // codemodPath last: our own value wins over whatever the agent echoed.
       return { ...result, codemodPath };
-    } catch (err) {
-      console.error(`CodingAgentService: couldn't parse agent result line "${line}":`, err);
+    } catch {
       return { success: false, codemodPath, reason: "agent result line wasn't valid JSON" };
     }
   }
 
-  private stdoutOf(err: unknown): string {
-    if (err && typeof err === "object" && "stdout" in err) {
-      return String((err as { stdout: unknown }).stdout);
-    }
-    return "";
+  private outputOf(err: unknown): string {
+    const { stdout = "", stderr = "" } = (err ?? {}) as { stdout?: unknown; stderr?: unknown };
+    return `${String(stdout)}\n--- stderr ---\n${String(stderr)}`;
   }
 }
