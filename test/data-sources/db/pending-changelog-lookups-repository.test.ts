@@ -51,6 +51,14 @@ test("takeBatch caps results at the given limit", () => {
   assert.equal(pending.takeBatch(1).length, 1);
 });
 
+test("takeBatch without a limit returns the whole queue", () => {
+  const { pending, commander, tsMorph } = setup();
+
+  pending.enqueue([commander, tsMorph]);
+
+  assert.equal(pending.takeBatch().length, 2);
+});
+
 test("remove takes an entry out of the queue", () => {
   const { pending, commander } = setup();
   pending.enqueue([commander]);

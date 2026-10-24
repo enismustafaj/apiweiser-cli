@@ -105,12 +105,15 @@ each `Dependency.id` is set — see the `RETURNING id` note in
 [`docs/database.md`](./database.md)). Pure insert via
 `PendingChangelogLookupsRepository`, no network call, no `await` needed.
 
-`processPendingLookups()` runs one scheduler tick:
+`processPendingLookups()` drains the whole queue in one run:
 
-1. Claims up to `BATCH_SIZE` (50 — npm doesn't publish an official rate
-   limit for the public registry; this is a conservative budget based on
-   empirically getting `429`s after a few hundred rapid sequential
-   requests) pending entries, oldest first.
+1. Claims every pending entry, oldest first. Lookups are sequential (one
+   registry request per package) with a 20 ms minimum gap between them,
+   keeping under the npm registry's 50 requests/second limit. There used
+   to be a 50-packages-per-run cap instead, which left a fresh repo with
+   1000+ dependencies without changelog sources for weeks - and with
+   `scan --once`, permanently - so most upgrade groups were skipped for
+   lack of a summary.
 2. For each, calls `NpmRegistryLookup.findChangelogSource(packageName)`:
    - **Resolves to a URL** → written to `data_sources` immediately, _then_
      the entry is removed from the queue. Insert-before-remove, per
@@ -125,10 +128,10 @@ each `Dependency.id` is set — see the `RETURNING id` note in
    - **Resolves to `null`** (no repository data — a definitive answer) →
      logged at debug level, and the entry is **still removed** from the
      queue. There's nothing to retry; leaving it queued would just burn
-     one of every future tick's budget on a package that will never
+     a request on every future run for a package that will never
      resolve.
    - **Throws** (network failure, `429`, ...) → logged as a
-     warning, entry **stays queued** for the next tick.
+     warning, entry **stays queued** for the next run.
 
 ## `DataSourcesRepository.insert(sources)`
 
@@ -139,8 +142,8 @@ by-name subquery `CallSitesRepository` uses.
 
 ## Scheduling
 
-`processPendingLookups()` runs as `ChangelogLookupJob` - daily, or once with
-`scan --once`, always before the suggestions job (see
+`processPendingLookups()` runs as `ChangelogLookupJob` - daily, or once
+with `scan --once`, always before the suggestions job (see
 [`docs/jobs.md`](./jobs.md)). The queue itself is global (keyed by package
 name, not tied to any one repo) - a scan target is required by the CLI
 regardless, but draining this particular queue doesn't depend on what was

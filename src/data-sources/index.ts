@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Dependency } from "../dependencies/types.ts";
 import { db } from "../db/singleton.ts";
 import { logger } from "../logger.ts";
@@ -5,7 +6,9 @@ import { DataSourcesRepository } from "./db/data-sources-repository.ts";
 import { PendingChangelogLookupsRepository } from "./db/pending-changelog-lookups-repository.ts";
 import { NpmRegistryLookup } from "./npm-registry-lookup.ts";
 
-const BATCH_SIZE = 50;
+// The npm registry allows 50 requests per second. One request per package,
+// sequential, so a minimum gap per lookup keeps us under it.
+const MIN_REQUEST_GAP_MS = 1000 / 50;
 
 const log = logger("data-sources");
 
@@ -20,11 +23,11 @@ export class DataSourcesModule {
 
   // Removal happens per-package, right after its outcome is durably
   // recorded (a found URL is inserted before its pending row is removed),
-  // so a crash mid-batch can't drop an already-dequeued package's URL. A
+  // so a crash mid-run can't drop an already-dequeued package's URL. A
   // definitive `null` result is removed and not retried; only a *thrown*
-  // error leaves the entry queued for the next tick.
+  // error leaves the entry queued for the next run.
   async processPendingLookups(): Promise<void> {
-    const batch = this.pendingLookupsRepository.takeBatch(BATCH_SIZE);
+    const batch = this.pendingLookupsRepository.takeBatch();
     log.info(`Looking up changelog sources for ${batch.length} packages`);
 
     for (const { pendingId, packageId, packageName } of batch) {
@@ -39,6 +42,7 @@ export class DataSourcesModule {
       } catch (err) {
         log.warn(`Lookup failed for "${packageName}", will retry:`, err);
       }
+      await sleep(MIN_REQUEST_GAP_MS);
     }
   }
 }

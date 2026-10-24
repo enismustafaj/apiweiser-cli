@@ -20,16 +20,20 @@ export class PendingChangelogLookupsRepository {
     }
   }
 
-  takeBatch(limit: number): PendingLookup[] {
-    return this.db.connection
-      .prepare(
-        `SELECT pcl.id AS pendingId, p.id AS packageId, p.name AS packageName
+  // No limit returns the whole queue.
+  takeBatch(limit?: number): PendingLookup[] {
+    return (
+      this.db.connection
+        .prepare(
+          `SELECT pcl.id AS pendingId, p.id AS packageId, p.name AS packageName
          FROM pending_changelog_lookups pcl
          JOIN packages p ON p.id = pcl.package_id
          ORDER BY pcl.created_at
          LIMIT ?`,
-      )
-      .all(limit) as unknown as PendingLookup[];
+        )
+        // SQLite treats a negative LIMIT as no limit.
+        .all(limit ?? -1) as unknown as PendingLookup[]
+    );
   }
 
   remove(pendingId: number): void {
