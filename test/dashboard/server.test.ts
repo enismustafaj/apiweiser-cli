@@ -2,22 +2,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Database } from "../../src/db/database.ts";
 import { PAGE_SIZE } from "../../src/dashboard/db/dashboard-repository.ts";
-import { PackagesRepository } from "../../src/dependencies/db/packages-repository.ts";
-import { PullRequestsRepository } from "../../src/github/db/pull-requests-repository.ts";
+import { DependenciesRepository } from "../../src/dependencies/db/dependencies-repository.ts";
 import { createServer } from "../../src/dashboard/server.ts";
 
 test("GET / renders the packages, suggestions, and PRs stored in the db", async () => {
   const db = new Database(":memory:");
-  new PackagesRepository(db).upsert("/repos/a", [
+  new DependenciesRepository(db).upsert("/repos/a", [
     { name: "commander", currentVersion: "15.0.0", type: "direct" },
   ]);
-  new PullRequestsRepository(db).insert({
-    repoPath: "/repos/a",
-    packageName: "chalk",
-    version: "4.1.0",
-    newVersion: "5.0.0",
-    url: "https://github.com/a/a/pull/1",
-  });
+  // Nothing writes pull_requests any more - rows from older versions still show.
+  db.connection
+    .prepare(
+      `INSERT INTO pull_requests (repo_path, package_name, version, new_version, url)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run("/repos/a", "chalk", "4.1.0", "5.0.0", "https://github.com/a/a/pull/1");
   const app = createServer(db);
 
   const res = await app.request("/");
@@ -47,7 +46,7 @@ test("GET /?packagesPage=2 renders the second page and pre-selects the packages 
     currentVersion: "1.0.0",
     type: "direct" as const,
   }));
-  new PackagesRepository(db).upsert("/repos/a", dependencies);
+  new DependenciesRepository(db).upsert("/repos/a", dependencies);
   const app = createServer(db);
 
   const body = await (await app.request("/?tab=packages&packagesPage=2")).text();
@@ -58,7 +57,7 @@ test("GET /?packagesPage=2 renders the second page and pre-selects the packages 
 
 test("GET / with a garbage page param falls back to page 1 instead of erroring", async () => {
   const db = new Database(":memory:");
-  new PackagesRepository(db).upsert("/repos/a", [
+  new DependenciesRepository(db).upsert("/repos/a", [
     { name: "commander", currentVersion: "15.0.0", type: "direct" },
   ]);
   const app = createServer(db);

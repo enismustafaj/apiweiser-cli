@@ -5,22 +5,20 @@ once, shared by every module.
 
 - **File location**: `~/.apiweiser-cli/db.sqlite` — a directory
   dedicated to this CLI, separate from any repo being scanned (same idea as
-  the SBOM/Renovate report caches).
+  the Renovate report cache, the changelog notes and the codemod registry).
 - **Engine**: Node's stdlib `node:sqlite` (`DatabaseSync`), not a
   third-party package.
 - **Access pattern**: `Database` owns the connection and schema; it doesn't
-  know about `packages`, `call_sites`, `data_sources`, or `suggestions` as
-  domain concepts beyond creating their tables. Each module has its own
-  `*Repository` class (`PackagesRepository`, `CallSitesRepository`,
-  `DataSourcesRepository`, `PendingChangelogLookupsRepository`,
-  `SuggestionsRepository`, `PullRequestsRepository`) that takes a `Database`
-  injected via constructor and runs its own queries against
-  `db.connection`. See [`docs/scanner.md`](./scanner.md),
-  [`docs/data-sources.md`](./data-sources.md), and
-  [`docs/suggestions.md`](./suggestions.md) for how each repository is used.
+  know about `packages`, `call_sites` or `changelog_sources` as domain
+  concepts beyond creating their tables. Each module has its own
+  `*Repository` class (`DependenciesRepository`, `ChangelogSourcesRepository`,
+  and the dashboard's read-only `DashboardRepository`) that takes a
+  `Database` injected via constructor and runs its own queries against
+  `db.connection`. See [`docs/scanner.md`](./scanner.md) and
+  [`docs/changelogs.md`](./changelogs.md) for how each repository is used.
 - **Foreign keys are enforced**: `PRAGMA foreign_keys = ON` is run once in
   the constructor. SQLite disables FK enforcement by default per connection
-  — without this pragma, `call_sites.package_id`/`data_sources.package_id`
+  — without this pragma, `call_sites.package_id`/`changelog_sources.package_id`
   would silently accept invalid references instead of raising an error.
 - **Singleton lives in a separate file**: `src/db/singleton.ts` —
   `export const db = new Database()`, plus the `process.on("exit", ...)`
@@ -37,20 +35,22 @@ once, shared by every module.
 
 All tables are created with `CREATE TABLE IF NOT EXISTS` in
 `Database.migrate()`, run once in the constructor — there's no separate
-migration runner or versioning, just idempotent `CREATE TABLE`s. Changing an
-existing table's columns means deleting `~/.apiweiser-cli/db.sqlite`
-and letting it recreate; there's no `ALTER TABLE` step.
+migration runner or versioning, just idempotent statements: two
+`ALTER TABLE`/`DROP TABLE` lines clean up after older versions (the
+`data_sources` → `changelog_sources` rename, and the removed
+`pending_changelog_lookups` queue). Changing an existing table's columns
+means deleting `~/.apiweiser-cli/db.sqlite` and letting it recreate.
 
 ### `packages`
 
-Populated by `PackagesRepository`, **one row per `(repo_path, name)` pair**
+Populated by `DependenciesRepository` (from `scan`), **one row per `(repo_path, name)` pair**
 — not per package name alone. This used to be name-only, a real bug for
 multi-repo use: two repos depending on the same package at different
 versions shared a single global row, so scanning the second repo silently
 overwrote the first repo's version (and, via `call_sites`' FK, orphaned or
 misattributed its call sites too - see below). `repo_path` is always the
 canonicalized, absolute repo path (`node:path`'s `resolve()`), resolved
-once in `DependenciesModule.scan()`/`SuggestionsModule.generate()`, so the
+once at the start of every command, so the
 same repo scanned via a relative path one run and an absolute path the
 next is still recognized as the same repo, not a second one.
 
@@ -60,47 +60,43 @@ always reflect that repo's most recent scan.
 
 `upsert()` uses `... RETURNING id` and writes the result straight onto each
 `Dependency` object's `id` field, in the same statement as the
-insert/update — no separate `SELECT` afterward. Downstream code that
-already has the (now-mutated) `Dependency` in hand, like
-`DataSourcesRepository`, uses `dependency.id` directly instead of looking
-the id up again by name. `CallSitesRepository` is the exception — see the
-`call_sites` note below.
+insert/update — no separate `SELECT` afterward. `find(repoPath, name)`
+returns a row's `id` and `currentVersion` for the commands that start from
+a package name (`changelog`, `codemod`, `plan`'s `from`).
+
+A package installed at several versions (an older copy nested under another
+package) is recorded once, at its top-level copy - the one the repo itself
+resolves (see `SbomTool`).
 
 | column            | type    | notes                                         |
 | ----------------- | ------- | --------------------------------------------- |
 | `id`              | INTEGER | primary key, autoincrement                    |
 | `repo_path`       | TEXT    | absolute path of the repo this row belongs to |
 | `name`            | TEXT    | package name, e.g. `"commander"`              |
-| `current_version` | TEXT    | from the SBOM                                 |
+| `current_version` | TEXT    | the installed version, read from node_modules |
 | `type`            | TEXT    | `"direct"` or `"transitive"`                  |
 
 `UNIQUE(repo_path, name)` - the same package name can have one row per
 repo, but only one row per repo.
 
-**Deliberately global, not per-repo**: `PackagesRepository.findNew()`
-checks existence by `name` alone, ignoring `repo_path` - "new" means new to
-this CLI globally (across every repo it's ever scanned), not new to one
-repo. A package's changelog source (`data_sources`, below) is a property
-of the package, not of whichever repo happens to depend on it, so a second
-repo introducing an already-known package shouldn't re-trigger that lookup.
-This is also what lets a generated codemod (see
-[`docs/change-requests.md`](./change-requests.md)) found via one repo
-apply to another - those are keyed by package identity, never by
-`repo_path`.
+A package's changelog source (`changelog_sources`, below) and its codemods
+(see [`docs/codemods.md`](./codemods.md)) are properties of the package, not
+of whichever repo depends on it - both are looked up by name, never by
+`repo_path`, so what one repo found is reused by the next.
 
 ### `call_sites`
 
-Populated by `CallSitesRepository`, one row per place a scanned
+Populated by `DependenciesRepository` (from `scan`), one row per place a scanned
 dependency's API is actually called (see [`docs/scanner.md`](./scanner.md)
 for how `Scanner` finds these). `package_id` is a foreign key into
-`packages` — `DependenciesModule` always upserts packages first, so the
+`packages` — `scan` always upserts packages first, so the
 package a call site belongs to is guaranteed to exist by the time the call
-site is inserted. Unlike `data_sources` below, `CallSitesRepository` still
+site is inserted. Unlike `changelog_sources` below, `insertCallSites` still
 resolves `package_id` via a `(SELECT id FROM packages WHERE repo_path = ?
 AND name = ?)` subquery rather than `dependency.id` — `CallSite` only
 carries the dependency's name (from `Scanner`, which doesn't touch the
 database), not the `Dependency` object itself, so there's no `id` on hand
-to reuse. Every `CallSitesRepository` method takes `repoPath` explicitly,
+to reuse. Every call-site method takes `repoPath` explicitly,
 for the same reason `packages` does - resolving `package_id` by name alone
 would risk matching a different repo's row for the same package name.
 
@@ -117,34 +113,14 @@ would risk matching a different repo's row for the same package name.
 To read a call site with its package name, join `call_sites` to `packages`
 through `package_id`.
 
-### `pending_changelog_lookups`
+### `changelog_sources`
 
-The queue: one row per package waiting for a changelog-source lookup (see
-[`docs/data-sources.md`](./data-sources.md)). `DependenciesModule.scan()`
-inserts into this table for brand-new packages — no network call, just a
-queue entry — and `DataSourcesModule.processPendingLookups()` (run on a
-schedule, not inline with a scan) drains it in batches, deleting a row
-once its lookup resolves (to a URL _or_ a definitive "no source exists" —
-either way, there's nothing left to look up).
-
-| column       | type    | notes                                                        |
-| ------------ | ------- | ------------------------------------------------------------ |
-| `id`         | INTEGER | primary key, autoincrement                                   |
-| `package_id` | INTEGER | `REFERENCES packages(id)`, unique, not null                  |
-| `created_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`; also the queue's FIFO order |
-
-`package_id` is `UNIQUE` so re-enqueuing an already-queued package
-(`INSERT OR IGNORE`) is a no-op rather than a duplicate row.
-
-### `data_sources`
-
-Populated by `DataSourcesRepository`, one row per package
-`DataSourcesModule` actually found a changelog source URL for (see
-[`docs/data-sources.md`](./data-sources.md)). Only ever written for
-packages that are brand new to `packages` — a version bump on a package
-already known doesn't produce a new row here. A package whose lookup
-resolves to "no source exists" is removed from `pending_changelog_lookups`
-but never gets a row here — there's no URL to record.
+Populated by `ChangelogSourcesRepository`, one row per package the
+`changelog` command found a changelog source URL for (see
+[`docs/changelogs.md`](./changelogs.md)). Written the first time `changelog`
+needs a package's source; every later run reads it back with `findUrl`
+instead of asking npm again. A package npm has no GitHub repo for never gets
+a row - there's no URL to record, so it's looked up again next time.
 
 | column       | type    | notes                                                                         |
 | ------------ | ------- | ----------------------------------------------------------------------------- |
@@ -153,54 +129,16 @@ but never gets a row here — there's no URL to record.
 | `url`        | TEXT    | GitHub API releases endpoint (`api.github.com/repos/<owner>/<repo>/releases`) |
 | `created_at` | TEXT    | defaults to `CURRENT_TIMESTAMP`                                               |
 
-`DataSourcesRepository.insert()` takes `Map<packageId, url>` and inserts
-`package_id` directly — no subquery, since `DataSourcesModule` already has
-each `Dependency`'s `id` (set by `PackagesRepository.upsert()`) on hand.
+`ChangelogSourcesRepository.insert()` takes `Map<packageId, url>` and inserts
+`package_id` directly — no subquery, since `changelog` already has the
+package's `id` from `DependenciesRepository.find()`.
 
-### `suggestions`
+### `suggestions` and `pull_requests`
 
-Populated by `SuggestionsRepository`, one row per version update Renovate
-proposes for a dependency (see [`docs/suggestions.md`](./suggestions.md)).
-A single dependency can produce more than one row (e.g. a `minor` bump and
-a separate `major` bump). Unlike `call_sites`, this still stores
-`dependency` as a plain name, not a `packages` foreign key — Renovate can
-propose updates for packages the SBOM scan never saw (e.g. deps in a
-lockfile-only manager), so it isn't guaranteed a matching `packages` row
-exists. `repo_path` (same canonicalized, absolute path as `packages`) is
-stored directly rather than resolved through a join, for the same reason -
-there's no guaranteed `packages` row to join through.
-
-| column            | type    | notes                                                         |
-| ----------------- | ------- | ------------------------------------------------------------- |
-| `id`              | INTEGER | primary key, autoincrement                                    |
-| `repo_path`       | TEXT    | absolute path of the repo this suggestion was found in        |
-| `dependency`      | TEXT    | package name                                                  |
-| `package_file`    | TEXT    | which file it came from, e.g. `"package.json"`                |
-| `dep_type`        | TEXT    | e.g. `"dependencies"` vs `"devDependencies"`                  |
-| `current_version` | TEXT    | resolved version if known, else the raw range string          |
-| `new_version`     | TEXT    | resolved or raw proposed version                              |
-| `update_type`     | TEXT    | `"major"` / `"minor"` / `"patch"` / ...                       |
-| `datasource`      | TEXT    | e.g. `"npm"`, `"docker"`, `"github-tags"`                     |
-| `source_url`      | TEXT    | nullable - the package's repo/homepage, if Renovate found one |
-| `scanned_at`      | TEXT    | defaults to `CURRENT_TIMESTAMP`                               |
-
-### `pull_requests`
-
-Populated by `PullRequestsRepository`, one row per PR
-`GithubModule.openPullRequestForCodemod` actually opened (see
-[`docs/github.md`](./github.md)) - not per attempt. A run that produced no
-changes or found a non-GitHub remote returns `{ created: false }` without
-ever reaching this table; there's no URL to record.
-
-| column         | type    | notes                                               |
-| -------------- | ------- | --------------------------------------------------- |
-| `id`           | INTEGER | primary key, autoincrement                          |
-| `repo_path`    | TEXT    | absolute path of the repo the PR was opened against |
-| `package_name` | TEXT    | package migrated                                    |
-| `version`      | TEXT    | version before the update                           |
-| `new_version`  | TEXT    | version after the update                            |
-| `url`          | TEXT    | the created PR's `html_url`                         |
-| `opened_at`    | TEXT    | defaults to `CURRENT_TIMESTAMP`                     |
+Written by the old daily-job flow (Renovate's proposed updates, and the PRs
+it opened), which the commands replaced. Nothing writes them any more, but
+the dashboard still reads them, so rows from older versions keep showing
+there. Their columns are in `Database.migrate()`.
 
 ## Adding a new table
 

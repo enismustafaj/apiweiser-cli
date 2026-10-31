@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { Database } from "../../src/db/database.ts";
-import { PackagesRepository } from "../../src/dependencies/db/packages-repository.ts";
+import { DependenciesRepository } from "../../src/dependencies/db/dependencies-repository.ts";
 import { UpgradePlanner } from "../../src/suggestions/group-updates.ts";
 import type { RenovateUpdate } from "../../src/suggestions/types.ts";
 
@@ -42,7 +42,7 @@ function registryWithoutPeers(updates: RenovateUpdate[]): Registry {
 }
 
 function planner(installed: [string, string][] = []): UpgradePlanner {
-  const packages = new PackagesRepository(new Database(":memory:"));
+  const packages = new DependenciesRepository(new Database(":memory:"));
   packages.upsert(
     REPO,
     installed.map(([name, currentVersion]) => ({

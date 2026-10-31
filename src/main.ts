@@ -1,65 +1,64 @@
 #!/usr/bin/env node
-import { Command } from "commander";
-import { ConfigLoader } from "./config/config-loader.ts";
+import { Command, Option } from "commander";
+import { execute } from "./cli/command.ts";
+import { ChangelogCommand } from "./cli/commands/changelog/changelog-command.ts";
+import { CodemodCommand } from "./cli/commands/codemod/codemod-command.ts";
+import { PlanCommand } from "./cli/commands/plan/plan-command.ts";
+import { SkillInstallCommand } from "./cli/commands/skill/skill-install-command.ts";
+import { ScanCommand } from "./cli/commands/scan/scan-command.ts";
 import { DashboardModule } from "./dashboard/index.ts";
-import { DataSourcesModule } from "./data-sources/index.ts";
-import { DependenciesModule } from "./dependencies/index.ts";
-import { DependencyInstaller } from "./dependencies/sbom/dependency-installer.ts";
-import { RepoCloner } from "./github/tool/repo-cloner.ts";
-import { ChangelogLookupJob } from "./jobs/changelog-lookup-job.ts";
-import { Scheduler } from "./jobs/scheduler.ts";
-import { SuggestionsJob } from "./jobs/suggestions-job.ts";
-import { logger } from "./logger.ts";
-import { SuggestionsModule } from "./suggestions/index.ts";
-
-const DAILY_CRON = "0 0 * * *";
-
-const log = logger("cli");
+import { db } from "./db/singleton.ts";
+import type { Harness } from "./skills/types.ts";
 
 const app = new Command();
 
 app.name("apiweiser-cli").description("");
 
 app
-  .command("scan", { isDefault: true })
-  .option("-p, --path <path>", "local project path")
-  .option("-r, --repo <url>", "git URL of a repo to clone and scan instead of --path")
-  .option("--once", "run every job once, right away, and exit instead of scheduling them daily")
-  .action(async (opts: { path?: string; repo?: string; once?: boolean }) => {
-    // true when both or neither are set
-    if (!opts.path === !opts.repo) {
-      log.error("Provide exactly one of --path or --repo.");
-      process.exit(1);
-    }
+  .command("scan")
+  .description("record a repo's dependencies and where each is called, print them as JSON")
+  .requiredOption("-p, --path <path>", "local project path")
+  .action((opts: { path: string }) => execute(new ScanCommand(db), opts));
 
-    const config = new ConfigLoader().load();
+app
+  .command("plan")
+  .description("group a scanned repo's available updates into upgrade groups, print them as JSON")
+  .requiredOption("-p, --path <path>", "local project path")
+  .option(
+    "--package <name>",
+    "only the groups containing this package (repeatable)",
+    (name: string, names: string[]) => [...names, name],
+    [],
+  )
+  .action((opts: { path: string; package: string[] }) =>
+    execute(new PlanCommand(db), { path: opts.path, packages: opts.package }),
+  );
 
-    let repoPath: string;
-    if (opts.repo) {
-      log.info(`Cloning ${opts.repo}`);
-      repoPath = await new RepoCloner(config.github).cloneOrPull(opts.repo);
-      log.info(`Installing dependencies in ${repoPath}`);
-      await new DependencyInstaller().install(repoPath);
-    } else {
-      repoPath = opts.path!;
-    }
+app
+  .command("changelog")
+  .description("fetch the release notes between each group member's current and target version")
+  .requiredOption("-p, --path <path>", "local project path")
+  .requiredOption("-g, --group <id>", "a group id from `plan`, e.g. react@19.0.0+react-dom@19.0.0")
+  .action((opts: { path: string; group: string }) => execute(new ChangelogCommand(db), opts));
 
-    const dependencies = new DependenciesModule();
-    await dependencies.scan(repoPath);
+app
+  .command("codemod")
+  .description("find the codemod for each group member's upgrade, locally and in the registry")
+  .requiredOption("-p, --path <path>", "local project path")
+  .requiredOption("-g, --group <id>", "a group id from `plan`, e.g. react@19.0.0+react-dom@19.0.0")
+  .action((opts: { path: string; group: string }) => execute(new CodemodCommand(db), opts));
 
-    const scheduler = new Scheduler(DAILY_CRON, [
-      new ChangelogLookupJob(new DataSourcesModule()),
-      new SuggestionsJob(new SuggestionsModule(config), repoPath),
-    ]);
-
-    if (opts.once) {
-      await scheduler.runAll();
-      log.info("Done");
-    } else {
-      scheduler.start();
-      log.info(`Scheduled jobs on "${DAILY_CRON}"`);
-    }
-  });
+app
+  .command("skill")
+  .command("install")
+  .description("install the upgrade-dependency and codemod skills for your coding agent")
+  .addOption(
+    new Option("--harness <harness>", "the coding agent (default: whichever is on PATH)").choices([
+      "claude",
+      "codex",
+    ]),
+  )
+  .action((opts: { harness?: Harness }) => execute(new SkillInstallCommand(), opts));
 
 app
   .command("dashboard")

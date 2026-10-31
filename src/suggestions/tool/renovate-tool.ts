@@ -41,18 +41,15 @@ export class RenovateTool {
           "--onboarding=false",
           "--require-config=optional",
           "--dependency-dashboard=false",
-          "--osv-vulnerability-alerts=true",
           // Restrict to the npm manager (package.json dependencies) -
           // without this, Renovate also proposes updates for things like
           // the Node.js runtime version itself (.nvmrc/engines.node,
           // datasource "node-version"), which isn't a real npm dependency
-          // and has no depType at all in Renovate's own report, crashing
-          // SuggestionsRepository.insert (a NOT NULL column) when one
-          // slips through.
+          // and has no depType at all in Renovate's own report.
           "--enabled-managers=npm",
           // One candidate per major (6.x, 7.x, ...) instead of only the
           // latest major, so pickNextLeap can choose the next one - see
-          // docs/suggestions.md § Picking one update per package.
+          // docs/plan.md § Picking one update per package.
           "--separate-multiple-major=true",
           "--report-type=file",
           `--report-path=${reportPath}`,

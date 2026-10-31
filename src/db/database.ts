@@ -44,8 +44,14 @@ export class Database {
       )
     `);
 
+    // Renamed from data_sources - carry over an existing db's rows.
+    const legacy = this.db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'data_sources'`)
+      .get();
+    if (legacy) this.db.exec(`ALTER TABLE data_sources RENAME TO changelog_sources`);
+
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS data_sources (
+      CREATE TABLE IF NOT EXISTS changelog_sources (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         package_id INTEGER NOT NULL REFERENCES packages(id),
         url TEXT NOT NULL,
@@ -53,13 +59,9 @@ export class Database {
       )
     `);
 
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS pending_changelog_lookups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        package_id INTEGER NOT NULL UNIQUE REFERENCES packages(id),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    // The old daily changelog-lookup queue - `changelog` looks sources up
+    // itself now, so nothing reads it.
+    this.db.exec(`DROP TABLE IF EXISTS pending_changelog_lookups`);
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS suggestions (

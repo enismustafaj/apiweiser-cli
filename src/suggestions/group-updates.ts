@@ -1,5 +1,5 @@
 import semver from "semver";
-import type { PackagesRepository } from "../dependencies/db/packages-repository.ts";
+import type { DependenciesRepository } from "../dependencies/db/dependencies-repository.ts";
 import { InstalledDependencies } from "../dependencies/peer/installed-dependencies.ts";
 import { PeerGrouper } from "../dependencies/peer/peer-grouper.ts";
 import { RegistryPeers } from "../dependencies/peer/registry-peers.ts";
@@ -18,9 +18,7 @@ export class UpgradePlanner {
     this.grouper = grouper;
   }
 
-  // A fresh registry cache each time, so a long-running process doesn't
-  // keep using registry data from a previous daily run.
-  static forRepo(repoPath: string, packages: PackagesRepository): UpgradePlanner {
+  static forRepo(repoPath: string, packages: DependenciesRepository): UpgradePlanner {
     const registry = new RegistryPeers();
     const installed = new InstalledDependencies(repoPath, packages, registry);
     return new UpgradePlanner(new PeerGrouper(registry, installed));
@@ -75,7 +73,6 @@ export class UpgradePlanner {
         continue;
       }
 
-      // The merged group takes the place of the first earlier group it absorbed.
       const at =
         merged.length > 0 ? Math.min(...merged.map((g) => groups.indexOf(g))) : groups.length;
       groups = groups.filter((g) => !merged.includes(g));
@@ -89,10 +86,6 @@ export class UpgradePlanner {
     };
   }
 
-  // Picks the next leap rather than the biggest one: the lowest candidate
-  // that crosses into a new major, since migration guides and codemods are
-  // written one major at a time. If none crosses, the highest candidate
-  // within the current major (semver promises no breaking changes there).
   private pickNextLeap(updates: RenovateUpdate[]): RenovateUpdate[] {
     const byName = new Map<string, RenovateUpdate[]>();
     for (const update of updates) {

@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 test("prefixes messages with timestamp, level and scope", (t) => {
-  const log = t.mock.method(console, "log", () => {});
+  const log = t.mock.method(console, "error", () => {});
 
   logger("jobs").info("started", 3);
 
@@ -17,7 +17,7 @@ test("prefixes messages with timestamp, level and scope", (t) => {
 });
 
 test("drops debug by default and shows it when LOG_LEVEL=debug", (t) => {
-  const log = t.mock.method(console, "log", () => {});
+  const log = t.mock.method(console, "error", () => {});
 
   logger("x").debug("hidden");
   assert.equal(log.mock.callCount(), 0);
@@ -27,17 +27,23 @@ test("drops debug by default and shows it when LOG_LEVEL=debug", (t) => {
   assert.equal(log.mock.callCount(), 1);
 });
 
-test("sends warn and error to stderr", (t) => {
+// stdout belongs to a command's result (see src/cli/command.ts).
+test("sends every level to stderr, never stdout", (t) => {
   const err = t.mock.method(console, "error", () => {});
+  const out = t.mock.method(console, "log", () => {});
+  process.env.LOG_LEVEL = "debug";
 
+  logger("x").debug("d");
+  logger("x").info("i");
   logger("x").warn("w");
   logger("x").error("e");
 
-  assert.equal(err.mock.callCount(), 2);
+  assert.equal(err.mock.callCount(), 4);
+  assert.equal(out.mock.callCount(), 0);
 });
 
 test("falls back to info on an unknown LOG_LEVEL", (t) => {
-  const log = t.mock.method(console, "log", () => {});
+  const log = t.mock.method(console, "error", () => {});
   process.env.LOG_LEVEL = "verbose";
 
   logger("x").debug("hidden");
