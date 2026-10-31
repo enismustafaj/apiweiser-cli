@@ -1,9 +1,10 @@
 # Dashboard
 
 `src/dashboard/` — a local, read-only, server-rendered view over the same
-`~/.apiweiser-cli/db.sqlite` every other module writes to: what packages
-are known, what Renovate suggested, and what PRs have actually been opened
-(see [`docs/database.md`](./database.md)).
+`~/.apiweiser-cli/db.sqlite` the commands write to: what packages are known,
+plus the Renovate suggestions and opened PRs recorded by older versions -
+nothing writes those two tables any more (see
+[`docs/database.md`](./database.md)).
 
 ## Running it
 
@@ -11,17 +12,16 @@ are known, what Renovate suggested, and what PRs have actually been opened
 apiweiser-cli dashboard [--port <port>]   # default 3000
 ```
 
-A foreground command, not a scheduler - it binds a port and runs until
-Ctrl+C, same as running any other local dev server. It reads the same `db`
-singleton every other module uses (see [`docs/database.md`](./database.md)),
-so it reflects whatever the schedulers have already written - it never
-scans or writes anything itself.
+A foreground command - it binds a port and runs until Ctrl+C, same as
+running any other local dev server. It reads the same `db` singleton every
+other command uses (see [`docs/database.md`](./database.md)), so it reflects
+whatever `scan` has already written - it never scans or writes anything
+itself.
 
 ## `DashboardRepository`
 
-Its own repository, not bolted onto `PackagesRepository`/
-`SuggestionsRepository`/`PullRequestsRepository` - those are shaped around
-what each module needs to _write_; this one only reads, across every repo
+Its own repository, not bolted onto `DependenciesRepository` - that one is
+shaped around what `scan` needs to _write_; this one only reads, across every repo
 the CLI has ever scanned (`packages`/`suggestions`/`pull_requests` aren't
 scoped to one repo path from a dashboard's point of view - the whole point
 is seeing everything at once).
@@ -121,11 +121,6 @@ returns the underlying server handle.
 
 ## Wiring
 
-`src/main.ts` is now two subcommands rather than one flat command:
-
-- `apiweiser-cli scan --path <path>` - the original scan-and-schedule
-  behavior (or scan-and-run-once-then-exit, with `--once`). Registered with `commander`'s `isDefault: true`, so the
-  existing `apiweiser-cli --path <path>` invocation still works unchanged;
-  `scan` only needs to be typed explicitly to see `--help` for it
-  specifically.
-- `apiweiser-cli dashboard [--port <port>]` - this module.
+`apiweiser-cli dashboard [--port <port>]` in `src/main.ts`, next to the
+agent-facing commands (`scan`, `plan`, `changelog`, `codemod`,
+`skill install` - see the README).

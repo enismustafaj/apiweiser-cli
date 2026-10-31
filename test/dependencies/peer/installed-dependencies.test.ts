@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { Database } from "../../../src/db/database.ts";
-import { PackagesRepository } from "../../../src/dependencies/db/packages-repository.ts";
+import { DependenciesRepository } from "../../../src/dependencies/db/dependencies-repository.ts";
 import { InstalledDependencies } from "../../../src/dependencies/peer/installed-dependencies.ts";
 import { RegistryPeers } from "../../../src/dependencies/peer/registry-peers.ts";
 
@@ -37,7 +37,7 @@ function stubRegistry(status?: number): string[] {
 }
 
 function installed(direct: [string, string][], transitive: [string, string][] = []) {
-  const packages = new PackagesRepository(new Database(":memory:"));
+  const packages = new DependenciesRepository(new Database(":memory:"));
   packages.upsert(REPO, [
     ...direct.map(([name, currentVersion]) => ({ name, currentVersion, type: "direct" as const })),
     ...transitive.map(([name, currentVersion]) => ({

@@ -4,48 +4,81 @@
 
 Given a repo path and the list of `Dependency` objects produced by
 [`SbomTool`](../src/dependencies/sbom/sbom-tool.ts), the scanner finds every
-place in the repo's TypeScript source where one of those dependencies is
-actually _invoked_, and which exported member was called (the "API
-surface"). It returns a `CallSite[]`, one entry per resolved call:
+place in the repo's TypeScript or JavaScript source where one of those
+dependencies is actually _used_, and what was used (the "API surface"). It
+returns a `CallSite[]`, one entry per resolved usage:
 
-| field        | notes                                                      |
-| ------------ | ---------------------------------------------------------- |
-| `dependency` | package name, e.g. `"commander"`                           |
-| `file`       | absolute path of the source file                           |
-| `line`       | 1-based line of the call                                   |
-| `snippet`    | source text of the call expression                         |
-| `apiSurface` | the member invoked, e.g. `"Command"` or `"Command.option"` |
+| field        | notes                               |
+| ------------ | ----------------------------------- |
+| `dependency` | package name, e.g. `"commander"`    |
+| `file`       | absolute path of the source file    |
+| `line`       | 1-based line of the call            |
+| `snippet`    | source text of the call expression  |
+| `apiSurface` | what was used - see the table below |
 
 ## Algorithm
 
-1. **Load the repo into a ts-morph `Project`.**
-   `project.addSourceFilesAtPaths([join(repoPath, "**/*.{ts,tsx}"), "!**/node_modules/**"])`
-   picks up every `.ts`/`.tsx` file under `repoPath`, excluding
-   `node_modules`. No `tsconfig.json` is required
+1. **Load the repo into a ts-morph `Project`.** Every
+   `.ts/.tsx/.mts/.cts/.js/.jsx/.mjs/.cjs` file under `repoPath`, excluding
+   `node_modules`, build output (`dist`, `build`, `coverage`, `.next`,
+   `out`) and `*.min.js`. No `tsconfig.json` is required
    (`skipAddingFilesFromTsConfig: true`) — this keeps the scanner usable on
-   any repo regardless of its build setup.
+   any repo regardless of its build setup. `allowJs` makes plain JS and
+   CommonJS `require()` resolve like TS imports, and
+   `maxNodeModuleJsDepth: 2` (TypeScript's own default for JS projects)
+   also reads untyped packages' own JS, so `cors()` or `jwt.sign()` resolve
+   without an `@types` package. On a JS Express app that took call sites
+   from 0 to 268, at no measurable cost (under a second).
 
-2. **Collect every call in the file.**
-   For each source file, gather all `CallExpression` and `NewExpression`
-   nodes (`fn(...)` and `new Cls(...)`), with no filtering on what's being
-   called yet.
+2. **Collect every usage in the file**, with no filtering on what's being
+   used yet:
 
-3. **Resolve each call's callee back to where it was declared.**
+   | kind           | example                                             | `apiSurface`                                   |
+   | -------------- | --------------------------------------------------- | ---------------------------------------------- |
+   | call / `new`   | `app.option(...)`, `new Command()`                  | `Command.option`, `Command`                    |
+   | JSX component  | `<Combobox.Root>`, `<Button />`                     | `<Combobox.Root>`, `<Button>`                  |
+   | heritage       | `class X extends React.Component implements OnInit` | `extends React.Component`, `implements OnInit` |
+   | type reference | `req: express.Request`, `React.FC<Props>`           | `express.Request`, `React.FC`                  |
+
+   Lowercase JSX tags (`<div>`) are intrinsic elements - declared by
+   `@types/react` for every app - so they're skipped. Closing tags aren't
+   counted; the opening element is.
+
+3. **Resolve each usage back to where it was declared.**
    For a call `expr(...)`, the callee node is either an identifier
    (`fn(...)`) or a property access (`obj.method(...)`, in which case the
-   _name_ node — `method` — is what's resolved). `nameNode.getSymbol()` asks
+   _name_ node — `method` — is what's resolved); the same goes for a JSX
+   tag, a heritage expression, and the right side of a qualified type name
+   (`React.FC` resolves `FC`). `nameNode.getSymbol()` asks
    ts-morph's language service for the symbol backing that identifier, and
    if it's an import alias, `symbol.getAliasedSymbol()` follows it to the
-   real declaration. That declaration's source file is then checked for a
-   `node_modules/<dependency>/` path segment against the scanned
-   dependency names.
+   real declaration. That declaration's source file decides the owner:
+   - TypeScript's own `lib.*.d.ts` (`console`, `Array`, `Promise`, ...) are
+     skipped - ts-morph serves them from `node_modules/typescript/lib/`, but
+     they're the language, not the `typescript` package's API.
+   - Otherwise the owner is the package of the _last_ `node_modules/<name>/`
+     segment, so a nested copy (`a/node_modules/b`) counts as `b`.
+   - A declaration in `@types/<name>` is credited to `<name>` when that's a
+     dependency (even if `@types/<name>` is one too - the code calls
+     enzyme, `@types/enzyme` only describes it), else to `@types/<name>`
+     itself (`@types/node`). `@types/babel__core` maps to `@babel/core`.
+   - A declaration in a helper `@types` package that isn't a dependency, like
+     express's app/req/res in `@types/express-serve-static-core`, is
+     credited to the longest dependency whose name it extends (`express`).
 
 4. **Label the API surface.**
    - Direct call/construction (`fn(...)`, `new Cls(...)`) → `apiSurface` is
      just the callee name (`"execFile"`, `"Command"`).
    - Member call (`obj.method(...)`) → `apiSurface` is
      `"<TypeName>.<method>"`, where `<TypeName>` is the _type_ of `obj`
-     (`app.getType().getSymbol()?.getName()`), not `obj`'s variable name.
+     (`app.getType().getSymbol()?.getName()`), not `obj`'s variable name -
+     except where that type has no useful name: a module namespace
+     (`import * as bcrypt`), whose type symbol is named by its quoted file
+     path, and TypeScript's anonymous `__type`/`__object` (a JS
+     `module.exports = { sign }`). Those fall back to the code's own text
+     (`bcrypt.hash`, `jwt.sign`).
+   - JSX, heritage and type references → the source text, as in the table
+     above.
      This is what makes chained calls work: `app.option(...)` reports
      `"Command.option"` because `app`'s type is `Command`, even though
      `Command` itself isn't referenced anywhere on that line.
@@ -59,30 +92,23 @@ called on was produced.
 
 ## devDependencies aren't scanned at all
 
-`DependenciesModule.scan()` filters out `isDevDependency` dependencies
-(see [`SbomTool`](../src/dependencies/sbom/sbom-tool.ts), which reads npm
-sbom's `cdx:npm:package:development` component property) before calling
-`findCallSites` - dev tooling doesn't get "called" from application code
-the way a runtime dependency does, and even where it technically resolves
-(e.g. `@types/react`'s JSX/prop types, used throughout `.tsx` files), that
-isn't a real API call worth migrating with a codemod. With no call sites,
-an upgrade made only of devDependencies never gets a change request (see
-[`docs/suggestions.md`](./suggestions.md) § Raising change requests).
-
-This is also what keeps `typescript` itself out of the scanner:
-`typescript`'s npm package ships its own standard-library ambient
-declarations (`lib.es5.d.ts`, `lib.dom.d.ts`, ...), declaring every global
-JS/DOM API (`console`, `fetch`, `parseFloat`, `Array`, ...) under
-`node_modules/typescript/lib/` - resolving any of those as a "typescript"
-call site would be wrong (that's not `typescript`'s own API, which lives
-in `typescript.d.ts`), and it's `typescript` being a devDependency, not a
-special case in `Scanner` itself, that keeps it from ever reaching
-`findCallSites` in the first place.
+`scan` filters out `isDevDependency` dependencies (see
+[`SbomTool`](../src/dependencies/sbom/sbom-tool.ts): a package is dev when
+no runtime dependency reaches it) before calling `findCallSites` - dev
+tooling doesn't get "called" from application code the way a runtime
+dependency does, and even where it technically resolves (e.g.
+`@types/react`'s JSX/prop types, used throughout `.tsx` files), that isn't a
+real API call worth migrating with a codemod. With no call sites, `codemod`
+gives such a package no `codemodDir` - there's nothing to migrate.
 
 ## What it deliberately does not do
 
-- **No JS support.** Only `.ts`/`.tsx` files are scanned; plain `.js`/`.jsx`
-  call sites are invisible to this scanner.
+- **No Vue or Svelte support.** `.vue`/`.svelte` single-file components
+  aren't read - their `<script>` blocks would need extracting first.
+- **Runtime-attached APIs stay invisible.** A package that builds its API
+  at runtime (express's `app.use`, mixed into the app object, without
+  `@types/express`) has no declaration to resolve, so those calls are
+  skipped rather than guessed at.
 - **Whole-chain snippets.** `snippet` is the source text of the resolved
   call/`new` expression node. For a call late in a chain, that node's range
   covers everything before it too (`app.name(...).description(...).option(...)`

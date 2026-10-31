@@ -1,8 +1,8 @@
 # How upgrades are grouped
 
 This document explains how apiweiser decides **which dependency upgrades go
-together** into one change request (one codemod, one install, one pull
-request), and why.
+together** into one group in `plan`'s output (upgraded in one install, one
+step of the agent's flow), and why.
 
 ## The problem
 
@@ -20,7 +20,7 @@ The opposite direction breaks things too: upgrading `rxjs` alone to 7 fails
 if the installed `@angular/core@5` only accepts `rxjs ^5.5.0`.
 
 So upgrades that depend on each other are put into one **group**, and each
-group becomes one change request.
+group is upgraded as one unit.
 
 An earlier version grouped packages by name prefix (everything under
 `@angular/…` together). That missed real relationships - `rxjs` and
@@ -35,12 +35,9 @@ grouped unrelated packages that merely share a prefix (`@types/react` and
    `@angular/forms 5.2.9`: `5.2.11`, `6.1.10`, `7.2.16`, … `22.2.0`). These
    are the only versions the algorithm will ever choose. It never invents a
    version Renovate didn't offer.
-   - **Security fixes are the exception to "one per major".** When a
-     dependency has a known vulnerability, Renovate offers only the lowest
-     version that fixes it, however far away (e.g. `@angular/core 5.2.9 →
-20.0.0`, because no 6.x–19.x release fixes its advisories). That then
-     is the only option for that package, so the security fix takes
-     priority.
+   Security fixes don't change this: vulnerable packages step one major at
+   a time like any other, and `plan` reports their advisories (and the
+   version that fixes each) alongside, so the agent knows to keep going.
 2. **What's installed now** - every package in the project and its current
    version, recorded when the project was scanned.
 3. **Peer requirements** - for any package version, which peers it needs and
@@ -66,7 +63,7 @@ as the package's **next step**:
 Why one major at a time: migration guides, changelogs and codemods are
 written per major version, so each step is a well-understood migration, and
 a codemod built for "5 → 6" can be reused by every project that goes
-through that step. Once that upgrade is merged, the next daily run sees the
+through that step. Once that upgrade is done, the next `plan` sees the
 new installed version and proposes the next step (6 → 7). A patch within the
 current major is skipped when a major step exists, because the major
 release already includes it.
@@ -141,8 +138,7 @@ Group: @angular/core 6.1.10, rxjs 6.6.7, @angular/forms 6.1.10
 A **conflict** means there's no combination npm would accept using only the
 versions Renovate offered. The group is not raised; it's skipped, with a
 reason naming the package and range that broke it. It predicts the
-`ERESOLVE` failure before spending a coding-agent session and a pull request
-on it. It's not an error in the tool, just an upgrade that isn't possible
+`ERESOLVE` failure before the agent spends a migration on it. It's not an error in the tool, just an upgrade that isn't possible
 yet.
 
 There are four ways to get one:
@@ -177,8 +173,7 @@ the order Renovate listed them. Two rules keep the result consistent:
 
 If `rxjs` was pulled into the Angular group, its own suggestion is not
 raised separately later - it's already being upgraded as part of that group.
-Two separate pull requests for the same package would conflict with each
-other.
+Two separate upgrades of the same package would conflict with each other.
 
 ### Overlapping groups are merged
 
@@ -239,8 +234,8 @@ Rebuild: @angular/core is in the group at 6.1.10, which doesn't satisfy ^7
   → conflict: Angular stays at 6.1.10, ngx-toastr is skipped
 ```
 
-This isn't lost for good: once the Angular upgrade is merged, the next
-daily run plans `ngx-toastr` again against the new installed versions.
+This isn't lost for good: once the Angular upgrade is done, the next
+`plan` plans `ngx-toastr` again against the new installed versions.
 
 ### Merging several groups at once
 
@@ -257,9 +252,9 @@ Result:         [a 2.0.0, b 2.0.0, c 2.0.0]   [chalk 5.3.0]
 
 Planning produces:
 
-- **Groups** - each one becomes a single change request: one coding-agent
-  session builds one codemod for all its packages, all of them are installed
-  in one command, and one pull request is opened.
+- **Groups** - each one is upgraded as a unit: all its packages are
+  installed in one command, and each package's codemod is applied in the
+  same step.
 - **Skipped packages, each with a reason** - conflicts, and packages whose
   requirements couldn't be checked because the registry was unavailable
   (only that package is skipped; the rest of the plan continues).
@@ -395,14 +390,14 @@ function PLAN(suggestions):
   needs `yaml ^2.4.2`, which is installed only indirectly at `1.10.2`. Not
   fixed yet.
 - **Order still matters in one case.** A package skipped earlier in a run
-  isn't retried when a later merge would have made it fit. The next daily
-  run picks it up.
+  isn't retried when a later merge would have made it fit. The next `plan`
+  picks it up.
 - **Only direct dependencies are checked in the reverse direction.** An
   indirectly installed package that peer-depends on an upgraded one isn't
   seen; `npm install` then fails loudly with `ERESOLVE`.
 - **A registry outage affects the whole run.** The reverse check asks the
   registry about every direct dependency, so if the registry fails, every
-  package in that run is skipped. The next daily run retries.
+  package in that run is skipped. The next `plan` retries.
 - **Merged groups can get large** (e.g. React + React DOM + MUI + type
   packages) - correct, since npm can't install them separately, but a bigger
-  pull request to review.
+  change to review.

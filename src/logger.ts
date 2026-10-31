@@ -18,8 +18,12 @@ export function logger(scope: string): Logger {
     (level: LogLevel) =>
     (...args: unknown[]): void => {
       if (LEVELS[level] < threshold()) return;
-      const write = level === "warn" || level === "error" ? console.error : console.log;
-      write(`${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [${scope}]`, ...args);
+      // Every level goes to stderr: stdout is reserved for a command's
+      // JSON result, so it can be piped straight into a parser.
+      console.error(
+        `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [${scope}]`,
+        ...args,
+      );
     };
 
   return { debug: at("debug"), info: at("info"), warn: at("warn"), error: at("error") };
