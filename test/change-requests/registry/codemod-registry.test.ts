@@ -76,7 +76,13 @@ test("remoteName mirrors dirFor's major-only keying for a major-crossing upgrade
 test("remoteName mirrors dirFor's exact-version keying for a same-major upgrade", () => {
   const name = registry().remoteName("some-pkg", "2.4.5", "2.7.0");
 
-  assert.equal(name, "some-pkg-2.4.5-to-2.7.0");
+  assert.equal(name, "some-pkg-2_4_5-to-2_7_0");
+});
+
+// The registry rejects any other character in a name
+test("remoteName replaces the characters a registry name can't have", () => {
+  assert.equal(registry().remoteName("discord.js", "13.6.0", "14.28.0"), "discord_js-13-to-14");
+  assert.match(registry().remoteName("@a.b/c.d", "1.0.0+x.1", "1.2.0"), /^[A-Za-z0-9_-]+$/);
 });
 
 test("remoteName strips both path separators and the leading @ from a scoped package name", () => {

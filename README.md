@@ -60,7 +60,7 @@ apiweiser-cli scan --path .
 apiweiser-cli plan --path . --package react
 apiweiser-cli changelog --path . --group react@19.0.0+react-dom@19.0.0
 apiweiser-cli codemod --path . --group react@19.0.0+react-dom@19.0.0
-# the agent installs the group, applies or writes the codemods, verifies,
+# the agent applies or writes the codemods, installs the group, verifies,
 # then rescans so the next plan starts from the new versions
 apiweiser-cli scan --path .
 ```

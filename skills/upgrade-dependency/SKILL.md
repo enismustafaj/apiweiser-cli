@@ -122,6 +122,9 @@ Work on a new branch or git worktree, not on the user's current changes. The
 codemod CLI refuses a dirty working tree - never get around that with
 `--allow-dirty`.
 
+Run the repo's tests once before changing anything and note what already
+fails, so you can tell later which failures the upgrade caused.
+
 ### 3. Read the release notes
 ```sh
 apiweiser-cli changelog --path . --group <id>
@@ -134,6 +137,12 @@ the `scan` call sites. Changes to APIs the repo doesn't call don't matter.
 ```sh
 apiweiser-cli codemod --path . --group <id>
 ```
+**Every package with a `codemodDir` gets a codemod that covers its call
+sites, before any of them is changed - even when the change looks small
+enough to make by hand.** The codemod is what the next repo with the same
+upgrade reuses; a migration done by hand is lost. Fixing call sites by hand
+is only for what's left after the codemod has run (step 6).
+
 For each package with a `codemodDir`, in this order:
 
 1. **`remote` set** - dry-run it and check the diff covers the call sites:
@@ -150,7 +159,11 @@ For each package with a `codemodDir`, in this order:
    its existing test fixtures - other repos depend on them. Add new ones.
 3. **Neither** - search the public registry (codemod.com has official recipes
    for big upgrades, e.g. React 19). If nothing fits, write a new codemod **in
-   `codemodDir`** with the codemod skill (`/codemod`).
+   `codemodDir`** with the codemod skill (`/codemod`). This isn't optional:
+   a small upgrade gets a small codemod.
+
+If a remote or registry codemod covers only some call sites, write or extend
+the local one in `codemodDir` for the rest, and run both.
 
 When writing or extending a codemod:
 - Base it on the breaking changes from step 3 and the call sites from `scan`.
@@ -158,9 +171,16 @@ When writing or extending a codemod:
   `require`), not only the style this repo happens to use - it will be reused.
 - Run the codemod's **entire** test suite and get it green before using it.
 
-### 5. Upgrade and migrate
-Install every package in the group at its `to` version, in one install, with
-the repo's package manager (check the lockfile):
+### 5. Migrate and upgrade
+Apply the codemods first - the same commands as in step 4, without
+`--dry-run`. The codemod CLI only runs on a clean working tree, and the
+install changes `package.json` and the lockfile. If the tree is already dirty,
+commit what's there before running a codemod; don't reach for `--allow-dirty`.
+A codemod that fails to run is a step to fix, not to skip: rewriting its call
+sites by hand loses the changes it would have made.
+
+Then install every package in the group at its `to` version, in one install,
+with the repo's package manager (check the lockfile):
 ```sh
 npm install react@19.0.0 react-dom@19.0.0
 ```
@@ -168,14 +188,25 @@ Install exactly the group's packages, nothing else. `plan` already includes
 every package that has to move; tooling around the upgraded package (its
 CLI, schematics, linters, TypeScript) stays where it is unless it's in the
 group. If an install fails because another package has to move, rerun
-`plan` with that package rather than adding it by hand.
-
-Then apply the codemods (the same commands as in step 4, without `--dry-run`).
+`plan` with that package rather than adding it by hand. The one exception is
+a tool that can't run the new version at all (step 6).
 
 ### 6. Verify
 Run the repo's typecheck, linter, tests and build. Fix whatever the codemods
 didn't cover by hand, using the breaking changes from step 3. Don't stop with
 failures you caused; if something can't be fixed, explain it to the user.
+
+Check where each new failure is thrown. One from inside the upgraded
+package's own code, as it loads, isn't a call site to fix: the repo's tooling
+can't run that version (e.g. an old test runner without a global `fetch`, or
+a CommonJS setup loading an ESM-only package). Find what the package needs -
+its `engines` and peer dependencies (`npm view <name>@<to> engines
+peerDependencies`), the release notes, or a search for the error - and
+upgrade that one tool to the version that supports it with the fewest other
+changes - usually the oldest, but if that pulls in more packages, try a
+newer one. Don't pin the
+package below `to` instead; the next `plan` would hit the same wall. Name the
+tool and why in the report.
 
 A passing build doesn't show the behaviour is unchanged. If no test covers a
 call site you changed, exercise it yourself: a short script that loads the
@@ -195,8 +226,11 @@ what you fixed by hand, and the verification results. Don't commit, push or
 open a PR unless the user asks.
 
 ## Don'ts
+- Don't change a package's call sites by hand before a codemod for them exists
+  and has run - every package with a `codemodDir` gets one.
 - Don't upgrade part of a group, or two groups at once.
-- Don't upgrade packages outside the group.
+- Don't upgrade packages outside the group - except a tool that can't run
+  the new version (step 6).
 - Don't jump past `to` in one go.
 - Don't write codemods outside `codemodDir`.
 - Don't use `--allow-dirty`.
