@@ -44,7 +44,9 @@ export class CodemodRegistry {
   // become a name that still looks scoped.
   remoteName(packageName: string, fromVersion: string, toVersion: string): string {
     const name = sanitize(packageName).replace(/@/g, "");
-    // "+" (build metadata, e.g. 1.0.0+abc) isn't a safe name char.
-    return `${name}-${key(fromVersion, toVersion, "-")}`.replace(/\+/g, "--");
+    // The registry allows only letters, digits, "-" and "_" in a name, so
+    // "discord.js" and exact versions ("2.4.5") lose their dots. "+" (build
+    // metadata, e.g. 1.0.0+abc) becomes "--".
+    return `${name}-${key(fromVersion, toVersion, "-")}`.replace(/\+/g, "--").replace(/[^A-Za-z0-9_-]/g, "_");
   }
 }

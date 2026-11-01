@@ -74,7 +74,9 @@ npx codemod search <remoteName> --scope apiweiser --format json
 
 `CodemodRegistry.remoteName(...)` is the same key as the local directory,
 flattened into a dash-joined name (`react-18-to-19`; `@` and `/` stripped,
-since a registry scope is its own field). Only an **exact** name match in the
+since a registry scope is its own field, and any other character the registry
+doesn't allow in a name becomes `_`: `discord_js-13-to-14`,
+`some-pkg-2_4_5-to-2_7_0`). Only an **exact** name match in the
 `apiweiser` scope counts - a similar name is a different upgrade - and it
 comes back as a spec `codemod run` takes as is
 (`@apiweiser/react-18-to-19@1.2.0`). Searching needs no login.
